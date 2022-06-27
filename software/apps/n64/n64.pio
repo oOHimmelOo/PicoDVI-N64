@@ -1,0 +1,80 @@
+;
+; Copyright (c) 2022 Konrad Beckmann
+;
+; SPDX-License-Identifier: BSD-3-Clause
+;
+
+.program n64
+
+; For debugging, `set pins, 0` up to `3` may be used
+
+; 0-6 = data
+; 7   = dsync
+; 8   = clk
+
+n64_start:
+
+    ; Change IO dir of all pins to INPUT
+    ; mov osr, null
+    ; out pindirs, 32
+
+.wrap_target
+
+wait_for_dsyncn:
+    ; Wait for low CLK
+    wait 0 pin 8
+
+    ; Wait for high CLK -> posedge CLK
+    wait 1 pin 8
+
+    ; if DSYNC: goto 
+    jmp pin wait_for_dsyncn
+
+    ; DSYNC = 0
+
+    in pins, 8 ; SYNC
+    ; Wait for low CLK
+    wait 0 pin 8 
+
+    ; Wait for high CLK
+    wait 1 pin 8
+    in pins, 8 ; R
+    ; Wait for low CLK
+    wait 0 pin 8 
+
+    ; Wait for high CLK
+    wait 1 pin 8
+    in pins, 8 ; G
+    ; Wait for low CLK
+    wait 0 pin 8 
+
+    ; Wait for high CLK
+    wait 1 pin 8
+    in pins, 8 ; B
+
+    push
+
+.wrap             ; Handle PI transactions forever!
+
+
+% c-sdk {
+void n64_program_init(PIO pio, uint sm, uint offset) {
+
+    // gpio0 -> 8 input
+    for (int i = 0; i <= 8; i++) {
+        pio_gpio_init(pio, i);
+    }
+
+    pio_sm_config c = n64_program_get_default_config(offset);
+
+    sm_config_set_out_shift(&c, true, false, 32);
+
+    // GPIO0 -> GPIO8 as in pins
+    sm_config_set_in_pins(&c, 0);
+
+    // JMP pin = DSYNCn
+    sm_config_set_jmp_pin(&c, 7);
+
+    pio_sm_init(pio, sm, offset, &c);
+}
+%}
