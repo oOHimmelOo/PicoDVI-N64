@@ -56,7 +56,7 @@ void core1_scanline_callback() {
     scanline = (scanline + 1) % FRAME_HEIGHT;
 }
 
-uint32_t ringbuf[1024*8];
+uint32_t ringbuf[4096];
 uint32_t ringbuf_ctr;
 uint32_t ringbuf_idx;
 #define ARRAY_SIZE(x) (sizeof(x)/sizeof(x[0]))
@@ -75,6 +75,10 @@ static void ringbuf_print_and_reset(void)
         // printf("%d: %d\r\n", ringbuf_ctr + i, entry);
         printf("%d:", ringbuf_ctr + i);
         printf(" %d %d %d %d: %d \r\n", !!(entry & 1), !!(entry & 2), !!(entry & 4), !!(entry & 8), entry >> 8);
+
+        if ((entry & 0xF) == 0b1110) {
+            printf("###\r\n");
+        }
     }
 
     ringbuf_idx = 0;
@@ -226,16 +230,8 @@ int main() {
     #define NOT_CLAMP_POS (2)
     #define NOT_VSYNC_POS (3)
 
-    uint8_t sync = 0;
-    uint8_t sync_r = 0;
-
-    int is_synced = 0;
-    int sync_loops = 0;
-    uint32_t sync_patterns[16];
-
-    memset(sync_patterns, 0x00, sizeof(sync_patterns));
-
-typedef enum {
+    typedef enum {
+        STATE_UNDEFINED = 0,
                             // 3519: 0 0 1 1: 695 
                             // 3520: 1 1 1 1: 58 
                             // 3521: 1 1 0 1: 6 
@@ -298,7 +294,16 @@ typedef enum {
                             // 3554: 1 1 1 1: 35 
                             // 3555: 0 0 1 1: 695 
                             // 3556: 1 1 1 1: 58 
-};
+    } sync_state_t;
+
+    sync_state_t sync_state = 0;
+
+    uint8_t sync = 0;
+    uint8_t sync_r = 0;
+
+    int is_synced = 0;
+    int sync_loops = 0;
+
 
 
 
@@ -310,17 +315,18 @@ typedef enum {
 
         if (dma_buf_consumed) {
             // The handled irq wasn't our DMA transfer (dma_handler sets this to 0)
+            printf("Weird?\r\n");
             return;
         }
 
         // Make a copy of the read_buf pointer - DMA irq should finish before we're done.
         uint32_t *consume_buf = read_buf;
 
-        for (int i = 0; i < CAPTURE_SAMPLES; i++) {
+        for (int i = 0; i < CAPTURE_SAMPLES/2; i++) {
             // Grab n64 video data and increment the pointer
             uint32_t BGRS = *(consume_buf++);
 
-#if 1
+#if 0
             sync = BGRS & 0xFF;
             count++;
 
@@ -330,13 +336,14 @@ typedef enum {
 
             // if (((sync_r & MASK) == PATTERN_R) && ((sync & MASK) == PATTERN)) {
             if (sync_r != sync) {
+            // if ((sync_r != sync) && (sync == 0b1110)) {
                 ringbuf_put(sync | (count << 8));
                 count = 0;
             }
 
             sync_r = sync;
 
-#elif 1
+#elif 0
 
             sync = BGRS & 0xFF;
             count++;
@@ -374,24 +381,20 @@ typedef enum {
 
             // framebuf[row * FRAME_WIDTH + count++] = RGB888_TO_RGB565(
             // if ((BGRS & 0b1110) == 0b1110) {
-                framebuf[count] = ( (BGRS >> 26) & 0x1f);
-                // framebuf[row * FRAME_WIDTH + column] =
-                    // (((BGRS >> 10) & 0x1f) << 11) |
-                    // (((BGRS >> 16) & 0x3f) << 5) |
-                    // ( (BGRS >> 26) & 0x1f);
+                // framebuf[count] = ( (BGRS >> 26) & 0x1f);
+                framebuf[row * FRAME_WIDTH + column] =
+                    (((BGRS >> 10) & 0x1f) << 11) |
+                    (((BGRS >> 16) & 0x3f) << 5) |
+                    ( (BGRS >> 26) & 0x1f);
 
                 count++;
 
-                // if (count >= FRAME_WIDTH * FRAME_HEIGHT) {
-                // 	count = 0;
-                // }
+                if (count >= FRAME_WIDTH * FRAME_HEIGHT) {
+                	count = 0;
+                }
             // }
 
 #endif
-        }
-
-        if (count >= FRAME_WIDTH * FRAME_HEIGHT - CAPTURE_SAMPLES) {
-            count = 0;
         }
 
         // Inform the DMA handler that we are done

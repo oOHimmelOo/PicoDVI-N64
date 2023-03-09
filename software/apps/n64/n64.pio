@@ -6,11 +6,11 @@
 
 .program n64
 
-; For debugging, `set pins, 0` up to `3` may be used
-
 ; 0-6 = data
 ; 7   = dsync
 ; 8   = clk
+
+; Data is stable on Negedge of CLK
 
 n64_start:
 
@@ -21,35 +21,37 @@ n64_start:
 .wrap_target
 
 wait_for_dsyncn:
+
+    ; Wait for high CLK
+    wait 1 pin 8
+
     ; Wait for low CLK
     wait 0 pin 8
 
-    ; Wait for high CLK -> posedge CLK
-    wait 1 pin 8
-
-    ; if DSYNC: goto 
+    ; if DSYNC: goto wait_for_dsyncn
     jmp pin wait_for_dsyncn
 
     ; DSYNC = 0
 
+    ; Sample into SYNC
     in pins, 8 ; SYNC
-    ; Wait for low CLK
-    wait 0 pin 8 
-
     ; Wait for high CLK
     wait 1 pin 8
+
+    ; Wait for low CLK
+    wait 0 pin 8 
     in pins, 8 ; R
-    ; Wait for low CLK
-    wait 0 pin 8 
-
     ; Wait for high CLK
     wait 1 pin 8
+
+    ; Wait for low CLK
+    wait 0 pin 8 
     in pins, 8 ; G
-    ; Wait for low CLK
-    wait 0 pin 8 
-
     ; Wait for high CLK
     wait 1 pin 8
+
+    ; Wait for low CLK
+    wait 0 pin 8 
     in pins, 8 ; B
 
     push
