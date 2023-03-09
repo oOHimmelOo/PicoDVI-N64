@@ -279,19 +279,45 @@ int main() {
 
         // printf("VSYNC\n");
 
-        for (row = 0; row < FRAME_HEIGHT; row++) {
+        // for (row = 0; row < FRAME_HEIGHT * 2; row++) {
+        int active_row = 0;
+        for (row = 0; row < FRAME_HEIGHT * 4; row++) {
             // 2. Find posedge HSYNC
             do {
                 BGRS = pio_sm_get_blocking(pio, sm);
-            } while (!(BGRS & HSYNCB_MASK));
+
+                if ((BGRS & VSYNCB_MASK) == 0) {
+                    // VSYNC found, time to quit
+                    goto end_of_line;
+                }
+
+            } while ((BGRS & ACTIVE_PIXEL_MASK) != ACTIVE_PIXEL_MASK);
+
+            if (row % 4 != 0) {
+                // Render every 4th row
+                do {
+                    BGRS = pio_sm_get_blocking(pio, sm);
+
+                    if ((BGRS & VSYNCB_MASK) == 0) {
+                        // VSYNC found, time to quit
+                        goto end_of_line;
+                    }
+                } while ((BGRS & ACTIVE_PIXEL_MASK) == ACTIVE_PIXEL_MASK);
+
+                continue;
+            }
+
 
             // printf("HSYNC\n");
-            count = row * FRAME_WIDTH;
+            count = active_row * FRAME_WIDTH;
+            active_row++;
+
             column = 0;
 
             // 3. Capture pixels
             do {
                 BGRS = pio_sm_get_blocking(pio, sm);
+
                 framebuf[count++] = (
                     ((BGRS      ) & 0xf800) |
                     ((BGRS >> 13) & 0x07e0) |
@@ -299,19 +325,23 @@ int main() {
                 );
 
                 // Skip every second pixel
-                pio_sm_get_blocking(pio, sm);
+                BGRS = pio_sm_get_blocking(pio, sm);
+                BGRS = pio_sm_get_blocking(pio, sm);
+                BGRS = pio_sm_get_blocking(pio, sm);
 
                 column++;
                 if (column > FRAME_WIDTH) {
-                    break;
+                    continue;
                 }
-            } while (BGRS & HSYNCB_MASK);
+            } while ((BGRS & ACTIVE_PIXEL_MASK) == ACTIVE_PIXEL_MASK);
 
 
             // if (skip) {
             //     break;
             // }
         }
+
+end_of_line:
 
     }
     __builtin_unreachable();
