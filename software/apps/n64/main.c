@@ -1,3 +1,8 @@
+// #pragma GCC optimize("Os")
+// #pragma GCC optimize("O2")
+// #pragma GCC optimize("O3")
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include "hardware/clocks.h"
@@ -43,7 +48,7 @@
 
 
 struct dvi_inst dvi0;
-uint16_t framebuf[FRAME_WIDTH * FRAME_HEIGHT];
+uint16_t framebuf[FRAME_WIDTH * (FRAME_HEIGHT + 4)]; // add some extra to be able to overwrite a bit ;)
 
 void core1_main() {
     dvi_register_irqs_this_core(&dvi0, DMA_IRQ_0);
@@ -249,7 +254,8 @@ int main() {
     #define ACTIVE_PIXEL_MASK (VSYNCB_MASK | HSYNCB_MASK | CLAMPB_MASK)
 
     /*
-    0      8       10   15    1B
+    0      8       10   15    1B  1F
+                    v    v     v   v
                     RRRRRGGGGGGBBBBB
    xBBBBBBBxGGGGGGGxRRRRRRRXXXXVLHC
                  BBBBBBBxGGGGGGGxRRRRRRRxXXXXVLHC
@@ -257,6 +263,7 @@ int main() {
                  BBBBBBBxGGGGGGGxRRRRRRRxXXXXVLHC
     */
 
+    memset(framebuf, 0, sizeof(framebuf));
 
     uint32_t BGRS;
     while (1) {
@@ -286,7 +293,8 @@ int main() {
 
             int skip_row = (
                 (row % 2 != 0) ||
-                (row < 88) ||
+                // (row < 88) ||
+                (row < 86) ||
                 (active_row >= FRAME_HEIGHT)
             );
 
@@ -302,7 +310,7 @@ int main() {
             } while ((BGRS & ACTIVE_PIXEL_MASK) != ACTIVE_PIXEL_MASK);
 
             if (skip_row) {
-                // Render every 2nd row
+                // Skip rows based on logic above
                 do {
                     BGRS = pio_sm_get_blocking(pio, sm);
 
@@ -318,6 +326,7 @@ int main() {
 
             // printf("HSYNC\n");
             count = active_row * FRAME_WIDTH;
+            int count_max = count + FRAME_WIDTH;
             active_row++;
 
             column = 0;
@@ -336,29 +345,30 @@ int main() {
             do {
                 BGRS = pio_sm_get_blocking(pio, sm);
 
-                int skip_col = (
-                    // (column < 10) ||
-                    (active_column > FRAME_WIDTH)
-                );
-                column++;
+                // int skip_col = (
+                //     // (column < 10) ||
+                //     // (active_column > FRAME_WIDTH)
+                //     (count >= count_max)
+                // );
+                // column++;
 
                 // Required to remove glitching pixels on the last column
-                if ((BGRS & ACTIVE_PIXEL_MASK) != ACTIVE_PIXEL_MASK) {
-                    break;
-                }
+                // if ((BGRS & ACTIVE_PIXEL_MASK) != ACTIVE_PIXEL_MASK) {
+                //     break;
+                // }
 
-                if (!skip_col) {
+                // if (!skip_col) {
                     framebuf[count++] = (
                         ((BGRS <<  1) & 0xf800) |
                         ((BGRS >> 12) & 0x07e0) |
                         ((BGRS >> 26) & 0x001f)
                     );
-                    active_column++;
-                }
+                    // active_column++;
+                // }
 
                 // Skip every second pixel
-                // BGRS = pio_sm_get_blocking(pio, sm);
-                // column++;
+                BGRS = pio_sm_get_blocking(pio, sm);
+                column++;
                 // BGRS = pio_sm_get_blocking(pio, sm);
                 // column++;
             } while ((BGRS & ACTIVE_PIXEL_MASK) == ACTIVE_PIXEL_MASK);
