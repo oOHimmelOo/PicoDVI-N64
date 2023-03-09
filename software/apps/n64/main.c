@@ -34,6 +34,14 @@
 #define BAUD_RATE   115200
 
 
+#define RGB888_TO_RGB565(_r, _g, _b) \
+    (                                \
+        (((_r) & 0xf8) <<  8) |      \
+        (((_g) & 0xfc) <<  3) |      \
+        (((_b))        >>  3)        \
+    )
+
+
 struct dvi_inst dvi0;
 uint16_t framebuf[FRAME_WIDTH * FRAME_HEIGHT];
 
@@ -73,7 +81,7 @@ static void ringbuf_print_and_reset(void)
     for (int i = 0; i < ARRAY_SIZE(ringbuf); i++) {
         uint32_t entry = ringbuf[i];
         // printf("%d: %d\r\n", ringbuf_ctr + i, entry);
-        printf("%d:", ringbuf_ctr + i);
+        printf("%ld:", ringbuf_ctr + i);
         printf(" %d %d %d %d: %d \r\n", !!(entry & 1), !!(entry & 2), !!(entry & 4), !!(entry & 8), entry >> 8);
 
         if ((entry & 0xF) == 0b1110) {
@@ -107,14 +115,6 @@ void dma_handler(void)
     // Clear the interrupt request.
     dma_hw->ints0 = 1u << dma_chan;
 
-    if (!dma_buf_consumed) {
-        printf("Application is lagging behind!\r\n");
-        // don't start another DMA
-        return;
-    }
-
-    dma_buf_consumed = 0;
-    dma_count++;
 
     // Swap write/read buffers
     if (capture_buf == capture_buf1) {
@@ -126,6 +126,13 @@ void dma_handler(void)
     }
 
     dma_channel_set_write_addr(dma_chan, capture_buf, true);
+
+    if (!dma_buf_consumed) {
+        //printf("Application is lagging behind!\r\n");
+    }
+
+    dma_buf_consumed = 0;
+    dma_count++;
 }
 
 
@@ -316,86 +323,41 @@ int main() {
         if (dma_buf_consumed) {
             // The handled irq wasn't our DMA transfer (dma_handler sets this to 0)
             printf("Weird?\r\n");
-            return;
+            continue;
         }
 
         // Make a copy of the read_buf pointer - DMA irq should finish before we're done.
         uint32_t *consume_buf = read_buf;
 
-        for (int i = 0; i < CAPTURE_SAMPLES/2; i++) {
+        for (int i = 0; i < CAPTURE_SAMPLES; i++) {
             // Grab n64 video data and increment the pointer
             uint32_t BGRS = *(consume_buf++);
 
-#if 0
-            sync = BGRS & 0xFF;
-            count++;
+            // int idx = row * FRAME_WIDTH + i;
+            // if (idx >= FRAME_WIDTH * FRAME_HEIGHT) {
+            //     row = 0;
+            // }
 
-            #define MASK      (0b1010)
-            #define PATTERN_R (0b1000) // VSYNC | ~HSYNC
-            #define PATTERN   (0b1010) // VSYNC |  HSYNC
+            // framebuf[row * FRAME_WIDTH + i] = (
+            //     (((BGRS >> 10) & 0x1f) << 11) |
+            //     (((BGRS >> 16) & 0x3f) << 5) |
+            //     ( (BGRS >> 26) & 0x1f)
+            // );
 
-            // if (((sync_r & MASK) == PATTERN_R) && ((sync & MASK) == PATTERN)) {
-            if (sync_r != sync) {
-            // if ((sync_r != sync) && (sync == 0b1110)) {
-                ringbuf_put(sync | (count << 8));
+            framebuf[count++] = (
+                // (((BGRS >> 10) & 0x1f) << 11) |
+                // (((BGRS >> 16) & 0x3f) << 5) |
+                // ( (BGRS >> 26) & 0x1f)
+
+                (BGRS & 8) ? 0xFFFF : 0 // Show only sync, 5 LSB
+
+            );
+            if (count >= FRAME_WIDTH * FRAME_HEIGHT) {
                 count = 0;
             }
 
-            sync_r = sync;
-
-#elif 0
-
-            sync = BGRS & 0xFF;
-            count++;
-
-
-            if (!is_synced) {
-                int is_hsync = !(BGRS & NOT_HSYNC_POS);
-                int is_vsync = !(BGRS & NOT_HSYNC_POS);
-
-                int was_hsync = !(BGRS_r & NOT_HSYNC_POS);
-                int was_vsync = !(BGRS_r & NOT_HSYNC_POS);
-
-                sync_patterns[sync]++;
-
-
-                // if (sync_r != sync) {
-                // 	sync_patterns[sync_r & 0xF] = count;
-                // 	count = 0;
-
-                // 	sync_loops++;
-
-                // 	if (sync_loops == 1024000) {
-                // 		sync_loops = 0;
-                // 		for (int i = 0; i < 16; i++) {
-                // 			printf("Sync[%02X] = %d\r\n", i, sync_patterns[i]);
-                // 		}
-                // 	}
-                // }
-
-                sync_r = sync;
-            }
-
-
-#else
-
-            // framebuf[row * FRAME_WIDTH + count++] = RGB888_TO_RGB565(
-            // if ((BGRS & 0b1110) == 0b1110) {
-                // framebuf[count] = ( (BGRS >> 26) & 0x1f);
-                framebuf[row * FRAME_WIDTH + column] =
-                    (((BGRS >> 10) & 0x1f) << 11) |
-                    (((BGRS >> 16) & 0x3f) << 5) |
-                    ( (BGRS >> 26) & 0x1f);
-
-                count++;
-
-                if (count >= FRAME_WIDTH * FRAME_HEIGHT) {
-                	count = 0;
-                }
-            // }
-
-#endif
         }
+        // row++;
 
         // Inform the DMA handler that we are done
         dma_buf_consumed = 1;
