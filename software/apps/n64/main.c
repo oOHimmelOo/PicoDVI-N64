@@ -187,6 +187,7 @@ int main() {
     n64_program_init(pio, 0, offset);
     pio_sm_set_enabled(pio, 0, true);
 
+#if 0
     // Enable DMA for second DMA channel (DMA 0 is used by DVI)
 
     // Grant high bus priority to the DMA, so it can shove the processors out
@@ -225,6 +226,9 @@ int main() {
 
     dma_channel_start(dma_chan);
 
+#endif
+
+
     int count = 0;
     int row = 0;
     int column = 0;
@@ -232,135 +236,82 @@ int main() {
     uint32_t BGRS_r = 0;
 
 
-    #define NOT_CSYNC_POS (0)
-    #define NOT_HSYNC_POS (1)
-    #define NOT_CLAMP_POS (2)
-    #define NOT_VSYNC_POS (3)
+    #define CSYNCB_POS (0)
+    #define HSYNCB_POS (1)
+    #define CLAMPB_POS (2)
+    #define VSYNCB_POS (3)
 
-    typedef enum {
-        STATE_UNDEFINED = 0,
-                            // 3519: 0 0 1 1: 695 
-                            // 3520: 1 1 1 1: 58 
-                            // 3521: 1 1 0 1: 6 
-                            // 3522: 1 1 1 1: 35 
-                            // 3523: 0 0 1 1: 695 
-                            // 3524: 1 1 1 1: 58 
-                            // 3525: 1 1 0 1: 6 
-                            // 3526: 1 1 1 1: 35 
+    #define CSYNCB_MASK (1 << CSYNCB_POS)
+    #define HSYNCB_MASK (1 << HSYNCB_POS)
+    #define CLAMPB_MASK (1 << CLAMPB_POS)
+    #define VSYNCB_MASK (1 << VSYNCB_POS)
 
-                            // 3527: 0 0 1 1: 695 
-                            // 3528: 1 1 1 1: 58 
-                            // 3529: 0 0 1 1: 736 
-                            // 3530: 1 1 1 1: 58 
-                            // 3531: 0 0 1 1: 736 
-                            // 3532: 1 1 1 1: 58 
+    #define ACTIVE_PIXEL_MASK (VSYNCB_MASK | HSYNCB_MASK | CLAMPB_MASK)
+
+    /*
+    0      8       10   15    1B
+                    RRRRRGGGGGGBBBBB
+    BBBBBBBxGGGGGGGxRRRRRRRxXXXXVLHC
+                 BBBBBBBxGGGGGGGxRRRRRRRxXXXXVLHC
+                               BBBBBBBxGGGGGGGxRRRRRRRxXXXXVLHC
+    */
 
 
-    STATE_ROW_FP,           // 1111 58  ROW_ACTIVE      -> ROW_FP
-    STATE_ROW_SYNC,         // 1101 6   ROW_FP          -> ROW_SYNC
-    STATE_ROW_BP,           // 1111 35  ROW_SYNC        -> ROW_BP
-    STATE_ROW_ACTIVE,       // 0011 695 ROW_BP          -> ROW_ACTIVE -> ROW_FP (loop)
-
-    STATE_BLANK1,           // 0011 736 ROW_FP          -> BLANK1
-    STATE_BLANK2,           // 1111 58  BLANK1          -> BLANK2
-    STATE_BLANK3,           // 0011 736 BLANK2          -> BLANK3
-    STATE_BLANK4,           // 1111 58  BLANK3          -> BLANK4
-
-                            // Let's ignore all pixels with ~VS=0
-                            // 3533: 0 0 1 0: 736 
-                            // 3534: 0 1 1 0: 58 
-                            // 3535: 1 1 1 0: 678 
-                            // 3536: 0 1 1 0: 58 
-                            // 3537: 0 0 1 0: 2 
-                            // 3538: 0 1 1 0: 57 
-                            // 3539: 1 1 1 0: 678 
-                            // 3540: 0 0 1 0: 58 
-                            // 3541: 0 1 1 0: 58 
-    STATE_BLANK5,           // xxx0 2383  BLANK4        -> BLANK5
-
-                            // 3542: 0 1 1 1: 339 <--- Really weird ones, notice 0b0111
-                            // 3543: 0 0 1 1: 397 <--- Really weird ones
-                            // 3544: 1 1 1 1: 58 
-                            // 3545: 0 0 1 1: 736 <--- Two extra wide ones
-                            // 3546: 1 1 1 1: 58 
-                            // 3547: 0 0 1 1: 736 <--- Two extra wide ones
-    STATE_BLANK6,           // 0111 339 BLANK5           -> BLANK6
-    STATE_BLANK7,           // 0011 397 BLANK6           -> BLANK7
-    STATE_BLANK8,           // 1111 58  BLANK7           -> BLANK8
-    STATE_BLANK9,           // 0011 736 BLANK8           -> BLANK9
-    STATE_BLANK10,          // 1111 58  BLANK9           -> BLANK10
-    STATE_BLANK11,          // 0011 736 BLANK10          -> BLANK11 -> STATE_ROW_FP [Start Of Frame]
-
-                            // -> STATE_ROW_FP [Start Of Frame]
-                            // 3548: 1 1 1 1: 58 
-                            // 3549: 1 1 0 1: 6 
-                            // 3550: 1 1 1 1: 35 
-                            // 3551: 0 0 1 1: 695 <---- now it's normal again
-                            // 3552: 1 1 1 1: 58 
-                            // 3553: 1 1 0 1: 6 
-                            // 3554: 1 1 1 1: 35 
-                            // 3555: 0 0 1 1: 695 
-                            // 3556: 1 1 1 1: 58 
-    } sync_state_t;
-
-    sync_state_t sync_state = 0;
-
-    uint8_t sync = 0;
-    uint8_t sync_r = 0;
-
-    int is_synced = 0;
-    int sync_loops = 0;
-
-
-
-
-
-
+    uint32_t BGRS;
     while (1) {
-        // Wait for DMA transfer to finish
-        __wfi();
 
-        if (dma_buf_consumed) {
-            // The handled irq wasn't our DMA transfer (dma_handler sets this to 0)
-            printf("Weird?\r\n");
-            continue;
-        }
+        int skip = 0;
 
-        // Make a copy of the read_buf pointer - DMA irq should finish before we're done.
-        uint32_t *consume_buf = read_buf;
+        row = 0;
+        column = 0;
+        count = 0;
 
-        for (int i = 0; i < CAPTURE_SAMPLES; i++) {
-            // Grab n64 video data and increment the pointer
-            uint32_t BGRS = *(consume_buf++);
+        // printf("START\n");
 
-            // int idx = row * FRAME_WIDTH + i;
-            // if (idx >= FRAME_WIDTH * FRAME_HEIGHT) {
-            //     row = 0;
+        int old = 0;
+
+        // 1. Find posedge VSYNC
+        do {
+            BGRS = pio_sm_get_blocking(pio, sm);
+        } while (!(BGRS & VSYNCB_MASK));
+
+        count = 0;
+
+        // printf("VSYNC\n");
+
+        for (row = 0; row < FRAME_HEIGHT; row++) {
+            // 2. Find posedge HSYNC
+            do {
+                BGRS = pio_sm_get_blocking(pio, sm);
+            } while (!(BGRS & HSYNCB_MASK));
+
+            // printf("HSYNC\n");
+            count = row * FRAME_WIDTH;
+            column = 0;
+
+            // 3. Capture pixels
+            do {
+                BGRS = pio_sm_get_blocking(pio, sm);
+                framebuf[count++] = (
+                    ((BGRS      ) & 0xf800) |
+                    ((BGRS >> 13) & 0x07e0) |
+                    ((BGRS >> 28) & 0x001f)
+                );
+
+                // Skip every second pixel
+                pio_sm_get_blocking(pio, sm);
+
+                column++;
+                if (column > FRAME_WIDTH) {
+                    break;
+                }
+            } while (BGRS & HSYNCB_MASK);
+
+
+            // if (skip) {
+            //     break;
             // }
-
-            // framebuf[row * FRAME_WIDTH + i] = (
-            //     (((BGRS >> 10) & 0x1f) << 11) |
-            //     (((BGRS >> 16) & 0x3f) << 5) |
-            //     ( (BGRS >> 26) & 0x1f)
-            // );
-
-            framebuf[count++] = (
-                // (((BGRS >> 10) & 0x1f) << 11) |
-                // (((BGRS >> 16) & 0x3f) << 5) |
-                // ( (BGRS >> 26) & 0x1f)
-
-                (BGRS & 8) ? 0xFFFF : 0 // Show only sync, 5 LSB
-
-            );
-            if (count >= FRAME_WIDTH * FRAME_HEIGHT) {
-                count = 0;
-            }
-
         }
-        // row++;
-
-        // Inform the DMA handler that we are done
-        dma_buf_consumed = 1;
 
     }
     __builtin_unreachable();
