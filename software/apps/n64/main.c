@@ -251,9 +251,10 @@ int main() {
     /*
     0      8       10   15    1B
                     RRRRRGGGGGGBBBBB
-    BBBBBBBxGGGGGGGxRRRRRRRxXXXXVLHC
+   xBBBBBBBxGGGGGGGxRRRRRRRXXXXVLHC
                  BBBBBBBxGGGGGGGxRRRRRRRxXXXXVLHC
                                BBBBBBBxGGGGGGGxRRRRRRRxXXXXVLHC
+                 BBBBBBBxGGGGGGGxRRRRRRRxXXXXVLHC
     */
 
 
@@ -281,7 +282,14 @@ int main() {
 
         // for (row = 0; row < FRAME_HEIGHT * 2; row++) {
         int active_row = 0;
-        for (row = 0; row < FRAME_HEIGHT * 4; row++) {
+        for (row = 0; ; row++) {
+
+            int skip_row = (
+                (row % 2 != 0) ||
+                (row < 88) ||
+                (active_row >= FRAME_HEIGHT)
+            );
+
             // 2. Find posedge HSYNC
             do {
                 BGRS = pio_sm_get_blocking(pio, sm);
@@ -293,8 +301,8 @@ int main() {
 
             } while ((BGRS & ACTIVE_PIXEL_MASK) != ACTIVE_PIXEL_MASK);
 
-            if (row % 4 != 0) {
-                // Render every 4th row
+            if (skip_row) {
+                // Render every 2nd row
                 do {
                     BGRS = pio_sm_get_blocking(pio, sm);
 
@@ -314,25 +322,45 @@ int main() {
 
             column = 0;
 
-            // 3. Capture pixels
+            // 3.  Capture pixels
+            // 3.1 Crop left black bar
+
+            int left_ctr = 0;
+            for (int left_ctr = 0; left_ctr < 10; left_ctr++) {
+                BGRS = pio_sm_get_blocking(pio, sm);
+                BGRS = pio_sm_get_blocking(pio, sm);
+                BGRS = pio_sm_get_blocking(pio, sm);
+            };
+
+            int active_column = 0;
             do {
                 BGRS = pio_sm_get_blocking(pio, sm);
 
-                framebuf[count++] = (
-                    ((BGRS      ) & 0xf800) |
-                    ((BGRS >> 13) & 0x07e0) |
-                    ((BGRS >> 28) & 0x001f)
+                int skip_col = (
+                    // (column < 10) ||
+                    (active_column > FRAME_WIDTH)
                 );
+                column++;
+
+                // Required to remove glitching pixels on the last column
+                if ((BGRS & ACTIVE_PIXEL_MASK) != ACTIVE_PIXEL_MASK) {
+                    break;
+                }
+
+                if (!skip_col) {
+                    framebuf[count++] = (
+                        ((BGRS <<  1) & 0xf800) |
+                        ((BGRS >> 12) & 0x07e0) |
+                        ((BGRS >> 26) & 0x001f)
+                    );
+                    active_column++;
+                }
 
                 // Skip every second pixel
-                BGRS = pio_sm_get_blocking(pio, sm);
-                BGRS = pio_sm_get_blocking(pio, sm);
-                BGRS = pio_sm_get_blocking(pio, sm);
-
-                column++;
-                if (column > FRAME_WIDTH) {
-                    continue;
-                }
+                // BGRS = pio_sm_get_blocking(pio, sm);
+                // column++;
+                // BGRS = pio_sm_get_blocking(pio, sm);
+                // column++;
             } while ((BGRS & ACTIVE_PIXEL_MASK) == ACTIVE_PIXEL_MASK);
 
 
