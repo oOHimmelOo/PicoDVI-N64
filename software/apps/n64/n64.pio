@@ -69,6 +69,9 @@ void n64_program_init(PIO pio, uint sm, uint offset) {
 
     pio_sm_config c = n64_program_get_default_config(offset);
 
+    // Double the FIFO depth
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+
     sm_config_set_out_shift(&c, true, false, 32);
 
     // GPIO0 -> GPIO8 as in pins

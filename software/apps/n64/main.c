@@ -38,6 +38,8 @@
 #define UART_ID     uart0
 #define BAUD_RATE   115200
 
+#define USE_RGB555
+
 
 #define RGB888_TO_RGB565(_r, _g, _b) \
     (                                \
@@ -48,7 +50,7 @@
 
 
 struct dvi_inst dvi0;
-uint16_t framebuf[FRAME_WIDTH * (FRAME_HEIGHT + 4)]; // add some extra to be able to overwrite a bit ;)
+uint16_t framebuf[FRAME_WIDTH * FRAME_HEIGHT];
 
 void core1_main() {
     dvi_register_irqs_this_core(&dvi0, DMA_IRQ_0);
@@ -62,88 +64,18 @@ void core1_scanline_callback() {
     uint16_t *bufptr;
     while (queue_try_remove_u32(&dvi0.q_colour_free, &bufptr))
         ;
-    // // Note first two scanlines are pushed before DVI start
+    // Note first two scanlines are pushed before DVI start
     static uint scanline = 2;
     bufptr = &framebuf[FRAME_WIDTH * scanline];
     queue_add_blocking_u32(&dvi0.q_colour_valid, &bufptr);
     scanline = (scanline + 1) % FRAME_HEIGHT;
 }
 
-uint32_t ringbuf[4096];
-uint32_t ringbuf_ctr;
-uint32_t ringbuf_idx;
+
 #define ARRAY_SIZE(x) (sizeof(x)/sizeof(x[0]))
 
 
-#define CAPTURE_SAMPLES (1024*4)
-uint32_t capture_buf1[CAPTURE_SAMPLES];
-uint32_t capture_buf2[CAPTURE_SAMPLES];
-uint32_t *capture_buf = capture_buf1;
-uint32_t *read_buf = capture_buf2;
-
-static void ringbuf_print_and_reset(void)
-{
-    for (int i = 0; i < ARRAY_SIZE(ringbuf); i++) {
-        uint32_t entry = ringbuf[i];
-        // printf("%d: %d\r\n", ringbuf_ctr + i, entry);
-        printf("%ld:", ringbuf_ctr + i);
-        printf(" %d %d %d %d: %d \r\n", !!(entry & 1), !!(entry & 2), !!(entry & 4), !!(entry & 8), entry >> 8);
-
-        if ((entry & 0xF) == 0b1110) {
-            printf("###\r\n");
-        }
-    }
-
-    ringbuf_idx = 0;
-    ringbuf_ctr += ARRAY_SIZE(ringbuf);
-}
-
-static void ringbuf_put(uint32_t entry)
-{
-    ringbuf[ringbuf_idx++] = entry;
-
-    if (ringbuf_idx < ARRAY_SIZE(ringbuf))
-        return;
-
-    ringbuf_print_and_reset();
-}
-
-
-
-
-int dma_chan;
-int dma_count = 0;
-int dma_buf_consumed = 1;
-
-void dma_handler(void)
-{
-    // Clear the interrupt request.
-    dma_hw->ints0 = 1u << dma_chan;
-
-
-    // Swap write/read buffers
-    if (capture_buf == capture_buf1) {
-        capture_buf = capture_buf2;
-        read_buf = capture_buf1;
-    } else {
-        capture_buf = capture_buf1;
-        read_buf = capture_buf2;
-    }
-
-    dma_channel_set_write_addr(dma_chan, capture_buf, true);
-
-    if (!dma_buf_consumed) {
-        //printf("Application is lagging behind!\r\n");
-    }
-
-    dma_buf_consumed = 0;
-    dma_count++;
-}
-
-
-
-
-int main() {
+int main(void) {
     vreg_set_voltage(VREG_VSEL);
     sleep_ms(10);
 #ifdef RUN_FROM_CRYSTAL
@@ -168,7 +100,7 @@ int main() {
 
     // Once we've given core 1 the framebuffer, it will just keep on displaying
     // it without any intervention from core 0
-    sprite_fill16(framebuf, 0xffff, FRAME_WIDTH * FRAME_HEIGHT);
+    sprite_fill16(framebuf, RGB888_TO_RGB565(0xFF, 0x00, 0x00), FRAME_WIDTH * FRAME_HEIGHT);
     uint16_t *bufptr = framebuf;
     queue_add_blocking_u32(&dvi0.q_colour_valid, &bufptr);
     bufptr += FRAME_WIDTH;
@@ -191,48 +123,6 @@ int main() {
     uint offset = pio_add_program(pio, &n64_program);
     n64_program_init(pio, 0, offset);
     pio_sm_set_enabled(pio, 0, true);
-
-#if 0
-    // Enable DMA for second DMA channel (DMA 0 is used by DVI)
-
-    // Grant high bus priority to the DMA, so it can shove the processors out
-    // of the way. This should only be needed if you are pushing things up to
-    // >16bits/clk here, i.e. if you need to saturate the bus completely.
-    bus_ctrl_hw->priority = BUSCTRL_BUS_PRIORITY_DMA_W_BITS | BUSCTRL_BUS_PRIORITY_DMA_R_BITS;
-
-    dma_chan = dma_claim_unused_channel(true);
-    printf("dma_chan=%d\r\n", dma_chan);
-
-    dma_channel_config c = dma_channel_get_default_config(dma_chan);
-    channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
-
-    // read 0, 1, 2, 3 <loop>
-    channel_config_set_ring(&c, false, 4);
-    channel_config_set_read_increment(&c, false);
-
-    // write 0, 1, 2, ... <stop>
-    // channel_config_set_ring(&c, true, ARRAY_SIZE(capture_buf1));
-    channel_config_set_write_increment(&c, true);
-    channel_config_set_dreq(&c, pio_get_dreq(pio, sm, false));
-
-    dma_channel_configure(dma_chan, &c,
-        capture_buf,        // Destination pointer
-        &pio->rxf[sm],      // Source pointer
-        ARRAY_SIZE(capture_buf1), // Number of transfers
-        false                // Don't start immediately
-    );
-
-    // Tell the DMA to raise IRQ line 0 when the channel finishes a block
-    dma_channel_set_irq1_enabled(dma_chan, true);
-
-    // Configure the processor to run dma_handler() when DMA IRQ 0 is asserted
-    irq_set_exclusive_handler(DMA_IRQ_1, dma_handler);
-    irq_set_enabled(DMA_IRQ_1, true);
-
-    dma_channel_start(dma_chan);
-
-#endif
-
 
     int count = 0;
     int row = 0;
@@ -263,8 +153,6 @@ int main() {
                  BBBBBBBxGGGGGGGxRRRRRRRxXXXXVLHC
     */
 
-    memset(framebuf, 0, sizeof(framebuf));
-
     uint32_t BGRS;
     while (1) {
 
@@ -287,15 +175,13 @@ int main() {
 
         // printf("VSYNC\n");
 
-        // for (row = 0; row < FRAME_HEIGHT * 2; row++) {
         int active_row = 0;
         for (row = 0; ; row++) {
 
             int skip_row = (
-                (row % 2 != 0) ||
-                // (row < 88) ||
-                (row < 86) ||
-                (active_row >= FRAME_HEIGHT)
+                (row % 2 != 0) ||            // Skip every second line (TODO: Add blend option later)
+                (row < 90) ||                // Libdragon top-aligned
+                (active_row >= FRAME_HEIGHT) // confirmed correct
             );
 
             // 2. Find posedge HSYNC
@@ -323,7 +209,6 @@ int main() {
                 continue;
             }
 
-
             // printf("HSYNC\n");
             count = active_row * FRAME_WIDTH;
             int count_max = count + FRAME_WIDTH;
@@ -331,52 +216,57 @@ int main() {
 
             column = 0;
 
-            // 3.  Capture pixels
-            // 3.1 Crop left black bar
+            // 3.  Capture scanline
 
+            // 3.1 Crop left black bar
             int left_ctr = 0;
-            for (int left_ctr = 0; left_ctr < 10; left_ctr++) {
-                BGRS = pio_sm_get_blocking(pio, sm);
-                BGRS = pio_sm_get_blocking(pio, sm);
+            // const int left_crop = 42; // LibDragon 320x240 left-aligned
+            const int left_crop = 36; // LibDragon 640x240 left-aligned
+            for (int left_ctr = 0; left_ctr < left_crop; left_ctr++) {
                 BGRS = pio_sm_get_blocking(pio, sm);
             };
 
-            int active_column = 0;
+            // 3.2 Capture active pixels
+            BGRS = pio_sm_get_blocking(pio, sm);
             do {
-                BGRS = pio_sm_get_blocking(pio, sm);
+                // 3.3 Convert to RGB565 or 555
+                framebuf[count++] = (
+#if defined(USE_RGB565)
+                    ((BGRS <<  1) & 0xf800) |
+                    ((BGRS >> 12) & 0x07e0) |
+                    ((BGRS >> 26) & 0x001f)
+                    // | 0x1f // Uncomment to tint everything with blue
+#elif defined(USE_RGB555)
+                    ((BGRS <<  1) & 0xf800) |
+                    ((BGRS >> 12) & 0x07c0) | // Mask so only 5 bits for green are used
+                    ((BGRS >> 26) & 0x001f)
+                    // | 0x1f // Uncomment to tint everything with blue
+#else
+#error Define USE_RGB565 or USE_RGB555
+#endif
+                );
 
-                // int skip_col = (
-                //     // (column < 10) ||
-                //     // (active_column > FRAME_WIDTH)
-                //     (count >= count_max)
-                // );
-                // column++;
-
-                // Required to remove glitching pixels on the last column
-                // if ((BGRS & ACTIVE_PIXEL_MASK) != ACTIVE_PIXEL_MASK) {
-                //     break;
-                // }
-
-                // if (!skip_col) {
-                    framebuf[count++] = (
-                        ((BGRS <<  1) & 0xf800) |
-                        ((BGRS >> 12) & 0x07e0) |
-                        ((BGRS >> 26) & 0x001f)
-                    );
-                    // active_column++;
-                // }
-
-                // Skip every second pixel
+                // 3.4 Skip every second pixel
                 BGRS = pio_sm_get_blocking(pio, sm);
                 column++;
+
+                // Skip one extra pixel, for debugging
                 // BGRS = pio_sm_get_blocking(pio, sm);
                 // column++;
+
+                // Never write more than the line width.
+                // Input might be weird and have too many active pixels - discard in those cases.
+                if (count >= count_max) {
+                    do {
+                        // Consume all active pixels
+                        BGRS = pio_sm_get_blocking(pio, sm);
+                    } while ((BGRS & ACTIVE_PIXEL_MASK) == ACTIVE_PIXEL_MASK);
+                    break;
+                }
+
+                // Fetch new pixel in the end, so the loop logic can react to it first
+                BGRS = pio_sm_get_blocking(pio, sm);
             } while ((BGRS & ACTIVE_PIXEL_MASK) == ACTIVE_PIXEL_MASK);
-
-
-            // if (skip) {
-            //     break;
-            // }
         }
 
 end_of_line:
