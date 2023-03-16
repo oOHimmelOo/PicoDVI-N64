@@ -1,6 +1,6 @@
 // #pragma GCC optimize("Os")
 // #pragma GCC optimize("O2")
-// #pragma GCC optimize("O3")
+#pragma GCC optimize("O3")
 
 
 #include <stdio.h>
@@ -49,6 +49,8 @@
     )
 
 
+const PIO pio = pio1;
+const uint sm = 0;
 struct dvi_inst dvi0;
 uint16_t framebuf[FRAME_WIDTH * FRAME_HEIGHT];
 
@@ -118,18 +120,13 @@ int main(void) {
     }
 
     // Init PIO before starting the second core
-    PIO pio = pio1;
-    uint sm = 0;
     uint offset = pio_add_program(pio, &n64_program);
     n64_program_init(pio, 0, offset);
     pio_sm_set_enabled(pio, 0, true);
 
     int count = 0;
     int row = 0;
-    int column = 0;
-
-    uint32_t BGRS_r = 0;
-
+    // int column = 0;
 
     #define CSYNCB_POS (0)
     #define HSYNCB_POS (1)
@@ -155,23 +152,12 @@ int main(void) {
 
     uint32_t BGRS;
     while (1) {
-
-        int skip = 0;
-
-        row = 0;
-        column = 0;
-        count = 0;
-
         // printf("START\n");
-
-        int old = 0;
 
         // 1. Find posedge VSYNC
         do {
             BGRS = pio_sm_get_blocking(pio, sm);
         } while (!(BGRS & VSYNCB_MASK));
-
-        count = 0;
 
         // printf("VSYNC\n");
 
@@ -181,7 +167,7 @@ int main(void) {
             int skip_row = (
                 (row % 2 != 0) ||            // Skip every second line (TODO: Add blend option later)
                 (row < 90) ||                // Libdragon top-aligned
-                (active_row >= FRAME_HEIGHT) // confirmed correct
+                (active_row >= FRAME_HEIGHT) // Never attempt to write more rows than the framebuffer
             );
 
             // 2. Find posedge HSYNC
@@ -214,12 +200,11 @@ int main(void) {
             int count_max = count + FRAME_WIDTH;
             active_row++;
 
-            column = 0;
+            // column = 0;
 
             // 3.  Capture scanline
 
             // 3.1 Crop left black bar
-            int left_ctr = 0;
             // const int left_crop = 42; // LibDragon 320x240 left-aligned
             const int left_crop = 36; // LibDragon 640x240 left-aligned
             for (int left_ctr = 0; left_ctr < left_crop; left_ctr++) {
@@ -246,14 +231,6 @@ int main(void) {
 #endif
                 );
 
-                // 3.4 Skip every second pixel
-                BGRS = pio_sm_get_blocking(pio, sm);
-                column++;
-
-                // Skip one extra pixel, for debugging
-                // BGRS = pio_sm_get_blocking(pio, sm);
-                // column++;
-
                 // Never write more than the line width.
                 // Input might be weird and have too many active pixels - discard in those cases.
                 if (count >= count_max) {
@@ -264,9 +241,25 @@ int main(void) {
                     break;
                 }
 
+                // 3.4 Skip every second pixel
+                BGRS = pio_sm_get_blocking(pio, sm);
+                // column++;
+
+                // Skip one extra pixel, for debugging
+                // BGRS = pio_sm_get_blocking(pio, sm);
+                // column++;
+
                 // Fetch new pixel in the end, so the loop logic can react to it first
                 BGRS = pio_sm_get_blocking(pio, sm);
-            } while ((BGRS & ACTIVE_PIXEL_MASK) == ACTIVE_PIXEL_MASK);
+
+#if 0
+                // Optional code to check for active pixels.
+                // Disabled for performance reasons.
+                if ((BGRS & ACTIVE_PIXEL_MASK) != ACTIVE_PIXEL_MASK) {
+                    break;
+                }
+#endif
+            } while (1);
         }
 
 end_of_line:
