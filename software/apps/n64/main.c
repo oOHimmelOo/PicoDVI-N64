@@ -26,8 +26,8 @@
 
 // TMDS bit clock 252 MHz
 // DVDD 1.2V (1.1V seems ok too)
-#define FRAME_WIDTH 320
-#define FRAME_HEIGHT 240
+#define FRAME_WIDTH 640
+#define FRAME_HEIGHT 120
 #define VREG_VSEL VREG_VOLTAGE_1_20
 #define DVI_TIMING dvi_timing_640x480p_60hz
 
@@ -38,7 +38,9 @@
 #define UART_ID     uart0
 #define BAUD_RATE   115200
 
-#define USE_RGB555
+// #define USE_RGB565
+// #define USE_RGB555
+#define USE_RGB555_RAW
 
 
 #define RGB888_TO_RGB565(_r, _g, _b) \
@@ -62,15 +64,27 @@ void core1_main() {
 }
 
 void core1_scanline_callback() {
+    static int h_offset;
+
     // Discard any scanline pointers passed back
     uint16_t *bufptr;
     while (queue_try_remove_u32(&dvi0.q_colour_free, &bufptr))
         ;
     // Note first two scanlines are pushed before DVI start
     static uint scanline = 2;
-    bufptr = &framebuf[FRAME_WIDTH * scanline];
+    bufptr = &framebuf[FRAME_WIDTH * scanline + (h_offset >> 4) * 2];
     queue_add_blocking_u32(&dvi0.q_colour_valid, &bufptr);
     scanline = (scanline + 1) % FRAME_HEIGHT;
+
+// Enable to scroll horizontally
+#if 0
+    if (scanline == 0) {
+        h_offset += 1;
+        if (h_offset == 640 * 2) {
+            h_offset = 0;
+        }
+    }
+#endif
 }
 
 
@@ -165,8 +179,8 @@ int main(void) {
         for (row = 0; ; row++) {
 
             int skip_row = (
-                (row % 2 != 0) ||            // Skip every second line (TODO: Add blend option later)
-                (row < 90) ||                // Libdragon top-aligned
+                // (row % 2 != 0) ||            // Skip every second line (TODO: Add blend option later)
+                (row < 89) ||                // Libdragon top-aligned
                 (active_row >= FRAME_HEIGHT) // Never attempt to write more rows than the framebuffer
             );
 
@@ -213,23 +227,37 @@ int main(void) {
 
             // 3.2 Capture active pixels
             BGRS = pio_sm_get_blocking(pio, sm);
+            int flipflop = 0;
             do {
                 // 3.3 Convert to RGB565 or 555
-                framebuf[count++] = (
-#if defined(USE_RGB565)
-                    ((BGRS <<  1) & 0xf800) |
-                    ((BGRS >> 12) & 0x07e0) |
-                    ((BGRS >> 26) & 0x001f)
-                    // | 0x1f // Uncomment to tint everything with blue
-#elif defined(USE_RGB555)
-                    ((BGRS <<  1) & 0xf800) |
-                    ((BGRS >> 12) & 0x07c0) | // Mask so only 5 bits for green are used
-                    ((BGRS >> 26) & 0x001f)
-                    // | 0x1f // Uncomment to tint everything with blue
-#else
-#error Define USE_RGB565 or USE_RGB555
-#endif
-                );
+                if (flipflop == 0) {
+                    framebuf[count] = (
+    #if defined(USE_RGB565)
+                        ((BGRS <<  1) & 0xf800) |
+                        ((BGRS >> 12) & 0x07e0) |
+                        ((BGRS >> 26) & 0x001f)
+                        // | 0x1f // Uncomment to tint everything with blue
+    #elif defined(USE_RGB555)
+                        ((BGRS <<  1) & 0xf800) |
+                        ((BGRS >> 12) & 0x07c0) | // Mask so only 5 bits for green are used
+                        ((BGRS >> 26) & 0x001f)
+                        // | 0x1f // Uncomment to tint everything with blue
+    #elif defined(USE_RGB555_RAW)
+                        BGRS >> 8
+    #else
+    #error Define USE_RGB565 or USE_RGB555
+    #endif
+                    );
+                } else {
+                    const uint32_t src = framebuf[count];
+                    const uint32_t R = (((src >>  0) & 0b11111) + ((BGRS >>  8) & 0b11111)) >> 1;
+                    const uint32_t G = (((src >>  5) & 0b11111) + ((BGRS >> 13) & 0b11111)) >> 1;
+                    const uint32_t B = (((src >> 10) & 0b11111) + ((BGRS >> 18) & 0b11111)) >> 1;
+                    framebuf[count] = R | (G<<5) | (B<<10);
+                    count++;
+                }
+                flipflop++;
+
 
                 // Never write more than the line width.
                 // Input might be weird and have too many active pixels - discard in those cases.
@@ -242,7 +270,7 @@ int main(void) {
                 }
 
                 // 3.4 Skip every second pixel
-                BGRS = pio_sm_get_blocking(pio, sm);
+                // BGRS = pio_sm_get_blocking(pio, sm);
                 // column++;
 
                 // Skip one extra pixel, for debugging

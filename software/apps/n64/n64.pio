@@ -40,19 +40,19 @@ wait_for_dsyncn:
 
     ; Wait for low CLK
     wait 0 pin 8 
-    in pins, 8 ; R
+    in pins, 5 ; R
     ; Wait for high CLK
     wait 1 pin 8
 
     ; Wait for low CLK
     wait 0 pin 8 
-    in pins, 8 ; G
+    in pins, 5 ; G
     ; Wait for high CLK
     wait 1 pin 8
 
     ; Wait for low CLK
     wait 0 pin 8 
-    in pins, 8 ; B
+    in pins, 14 ; B
 
     push
 
