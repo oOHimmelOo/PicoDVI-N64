@@ -1,7 +1,7 @@
 Bitbanged DVI on the RP2040 Microcontroller
 ===========================================
 
-![](img/mountains.jpg)
+![](img/n64-kicad-NUS-CPU-P-01-PicoDVI.png)
 
 *640x480 RGB565 image, 640x480p 60 Hz DVI mode. 264 kB SRAM, 2x Cortex-M0+, system clock 252 MHz*
 
