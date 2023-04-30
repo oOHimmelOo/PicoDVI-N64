@@ -5,16 +5,9 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include "hardware/clocks.h"
-#include "hardware/dma.h"
-#include "hardware/gpio.h"
-#include "hardware/irq.h"
-#include "hardware/irq.h"
-#include "hardware/sync.h"
+#include <stdarg.h>
 #include "hardware/vreg.h"
-#include "hardware/structs/bus_ctrl.h"
 #include "pico/multicore.h"
-#include "pico/sem.h"
 #include "pico/stdlib.h"
 
 #include "dvi.h"
@@ -24,6 +17,26 @@
 
 #include "n64.pio.h"
 
+
+// Uncomment to print diagnostic data on the screen
+// #define DIAGNOSTICS
+
+// Font
+#include "font_8x8.h"
+#define FONT_CHAR_WIDTH 8
+#define FONT_CHAR_HEIGHT 8
+#define FONT_N_CHARS 95
+#define FONT_FIRST_ASCII 32
+
+// Row configuration for PAL vs NTSC
+#define DEFAULT_CROP_Y_PAL  (90)
+#define DEFAULT_CROP_Y_NTSC (25)
+#define ROWS_PAL            (615)
+#define ROWS_NTSC           (511)
+#define ROWS_TOLERANCE      (5)
+#define IN_RANGE(__x, __low, __high) (((__x) >= (__low)) && ((__x) <= (__high)))
+#define IN_TOLERANCE(__x, __value, __tolerance) IN_RANGE(__x, (__value - __tolerance), (__value + __tolerance))
+
 // TMDS bit clock 252 MHz
 // DVDD 1.2V (1.1V seems ok too)
 #define FRAME_WIDTH 320
@@ -31,15 +44,13 @@
 #define VREG_VSEL VREG_VOLTAGE_1_20
 #define DVI_TIMING dvi_timing_640x480p_60hz
 
-#define LED_PIN 16
-
+// UART config on the last GPIOs
 #define UART_TX_PIN (28)
 #define UART_RX_PIN (29) /* not available on the pico */
 #define UART_ID     uart0
 #define BAUD_RATE   115200
 
 #define USE_RGB555
-
 
 #define RGB888_TO_RGB565(_r, _g, _b) \
     (                                \
@@ -48,20 +59,23 @@
         (((_b))        >>  3)        \
     )
 
+#define ARRAY_SIZE(x) (sizeof(x)/sizeof(x[0]))
 
 const PIO pio = pio1;
 const uint sm = 0;
 struct dvi_inst dvi0;
 uint16_t framebuf[FRAME_WIDTH * FRAME_HEIGHT];
 
-void core1_main() {
+void core1_main(void)
+{
     dvi_register_irqs_this_core(&dvi0, DMA_IRQ_0);
     dvi_start(&dvi0);
     dvi_scanbuf_main_16bpp(&dvi0);
     __builtin_unreachable();
 }
 
-void core1_scanline_callback() {
+void core1_scanline_callback(void)
+{
     // Discard any scanline pointers passed back
     uint16_t *bufptr;
     while (queue_try_remove_u32(&dvi0.q_colour_free, &bufptr))
@@ -73,25 +87,50 @@ void core1_scanline_callback() {
     scanline = (scanline + 1) % FRAME_HEIGHT;
 }
 
+static inline void putpixel(uint x, uint y, uint16_t rgb)
+{
+    uint idx = x + y * FRAME_WIDTH;
+    framebuf[idx] = rgb;
+}
 
-#define ARRAY_SIZE(x) (sizeof(x)/sizeof(x[0]))
+void puttext(uint x0, uint y0, uint bgcol, uint fgcol, const char *text)
+{
+    for (int y = y0; y < y0 + 8; ++y) {
+        uint xbase = x0;
+        const char *ptr = text;
+        char c;
+        while ((c = *ptr++)) {
+            uint8_t font_bits = font_8x8[(c - FONT_FIRST_ASCII) + (y - y0) * FONT_N_CHARS];
+            for (int i = 0; i < 8; ++i)
+                putpixel(xbase + i, y, font_bits & (1u << i) ? fgcol : bgcol);
+            xbase += 8;
+        }
+    }
+}
 
+void puttextf(uint x0, uint y0, uint bgcol, uint fgcol, const char *fmt, ...)
+{
+    char buf[128];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, 128, fmt, args);
+    puttext(x0, y0, bgcol, fgcol, buf);
+    va_end(args);
+}
 
-int main(void) {
+int main(void)
+{
     vreg_set_voltage(VREG_VSEL);
     sleep_ms(10);
 #ifdef RUN_FROM_CRYSTAL
     set_sys_clock_khz(12000, true);
 #else
-    // Run system at TMDS bit clock
+    // Run system at TMDS bit clock (252.000 MHz)
     set_sys_clock_khz(DVI_TIMING.bit_clk_khz, true);
 #endif
 
     // setup_default_uart();
     stdio_uart_init_full(UART_ID, BAUD_RATE, UART_TX_PIN, UART_RX_PIN);
-
-    gpio_init(LED_PIN);
-    gpio_set_dir(LED_PIN, GPIO_OUT);
 
     printf("Configuring DVI\n");
 
@@ -102,7 +141,15 @@ int main(void) {
 
     // Once we've given core 1 the framebuffer, it will just keep on displaying
     // it without any intervention from core 0
+
+#ifdef DIAGNOSTICS
+    // Fill with red
     sprite_fill16(framebuf, RGB888_TO_RGB565(0xFF, 0x00, 0x00), FRAME_WIDTH * FRAME_HEIGHT);
+#else
+    // Fill with black
+    sprite_fill16(framebuf, RGB888_TO_RGB565(0x00, 0x00, 0x00), FRAME_WIDTH * FRAME_HEIGHT);
+#endif
+
     uint16_t *bufptr = framebuf;
     queue_add_blocking_u32(&dvi0.q_colour_valid, &bufptr);
     bufptr += FRAME_WIDTH;
@@ -126,7 +173,7 @@ int main(void) {
 
     int count = 0;
     int row = 0;
-    // int column = 0;
+    int column = 0;
 
     #define CSYNCB_POS (0)
     #define HSYNCB_POS (1)
@@ -151,6 +198,15 @@ int main(void) {
     */
 
     uint32_t BGRS;
+    uint32_t frame = 0;
+    uint32_t crop_y = DEFAULT_CROP_Y_PAL;
+
+#ifdef DIAGNOSTICS
+    const volatile uint32_t *pGetTime = &timer_hw->timerawl;
+    uint32_t t0 = 0;
+    uint32_t t1 = 0;
+#endif
+
     while (1) {
         // printf("START\n");
 
@@ -166,7 +222,7 @@ int main(void) {
 
             int skip_row = (
                 (row % 2 != 0) ||            // Skip every second line (TODO: Add blend option later)
-                (row < 90) ||                // Libdragon top-aligned
+                (row < crop_y) ||            // crop_y, number of rows to skip vertically from the top
                 (active_row >= FRAME_HEIGHT) // Never attempt to write more rows than the framebuffer
             );
 
@@ -200,7 +256,7 @@ int main(void) {
             int count_max = count + FRAME_WIDTH;
             active_row++;
 
-            // column = 0;
+            column = 0;
 
             // 3.  Capture scanline
 
@@ -243,11 +299,11 @@ int main(void) {
 
                 // 3.4 Skip every second pixel
                 BGRS = pio_sm_get_blocking(pio, sm);
-                // column++;
+                column++;
 
                 // Skip one extra pixel, for debugging
                 // BGRS = pio_sm_get_blocking(pio, sm);
-                // column++;
+                column++;
 
                 // Fetch new pixel in the end, so the loop logic can react to it first
                 BGRS = pio_sm_get_blocking(pio, sm);
@@ -263,7 +319,33 @@ int main(void) {
         }
 
 end_of_line:
+        // Show diagnostic information every 100 frames, for 1 second
 
+#ifdef DIAGNOSTICS
+        if (frame % (50) == 0) {
+            uint32_t y = 0;
+            t1 = *pGetTime;
+
+            puttextf(0, ++y * 8, 0xffff, 0x0000, "Delta %d", (t1 - t0));
+            puttextf(0, ++y * 8, 0xffff, 0x0000, "row %d", row);
+            puttextf(0, ++y * 8, 0xffff, 0x0000, "column %d", column);
+            puttextf(0, ++y * 8, 0xffff, 0x0000, "count %d", count);
+
+
+            sleep_ms(2000);
+            t0 = *pGetTime;
+        }
+#endif
+
+        // Perform NTSC / PAL detection based on number of rows
+        if (IN_TOLERANCE(row, ROWS_PAL, ROWS_TOLERANCE)) {
+            crop_y = DEFAULT_CROP_Y_PAL;
+        } else {
+            // In case the mode can't be detected, default to NTSC as it crops fewer rows
+            crop_y = DEFAULT_CROP_Y_NTSC;
+        }
+
+        frame++;
     }
     __builtin_unreachable();
 }
