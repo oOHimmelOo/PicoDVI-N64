@@ -189,8 +189,9 @@ int main(void)
     dvi_get_blank_settings(&dvi0)->top    = 4 * 0;
     dvi_get_blank_settings(&dvi0)->bottom = 4 * 0;
     dvi_audio_sample_buffer_set(&dvi0, audio_buffer, AUDIO_BUFFER_SIZE);
-    dvi_set_audio_freq(&dvi0, 44100, 28000, 6272);
-    // dvi_set_audio_freq(&dvi0, 48000, 28000, 6272);
+    // dvi_set_audio_freq(&dvi0, 44100, 28000, 6272);
+    // dvi_set_audio_freq(&dvi0, 48000, 25200, 6144);
+    dvi_set_audio_freq(&dvi0, 32000, 25200, 4096);
     //add_repeating_timer_ms(2, audio_timer_callback, NULL, &audio_timer);
 
 
@@ -231,9 +232,9 @@ int main(void)
         uint32_t *audio_ptr = get_write_pointer(&dvi0.audio_ring);
         *audio_ptr = sample;
 
-        increase_write_pointer(&dvi0.audio_ring, 2);
+        increase_write_pointer(&dvi0.audio_ring, 1);
 
-        // // Just copy the sample
+        // Just copy the sample
         // audio_ptr = get_write_pointer(&dvi0.audio_ring);
         // *audio_ptr = sample;
 
