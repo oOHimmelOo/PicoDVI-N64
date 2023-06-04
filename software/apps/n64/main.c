@@ -15,6 +15,8 @@
 #include "common_dvi_pin_configs.h"
 #include "sprite.h"
 
+#include "audio.h"
+
 #include "n64.pio.h"
 
 
@@ -62,7 +64,8 @@
 #define ARRAY_SIZE(x) (sizeof(x)/sizeof(x[0]))
 
 const PIO pio = pio1;
-const uint sm = 0;
+const uint sm_video = 0;
+const uint sm_audio = 1;
 struct dvi_inst dvi0;
 uint16_t framebuf[FRAME_WIDTH * FRAME_HEIGHT];
 
@@ -118,6 +121,32 @@ void puttextf(uint x0, uint y0, uint bgcol, uint fgcol, const char *fmt, ...)
     va_end(args);
 }
 
+
+
+//Audio Related
+#define AUDIO_BUFFER_SIZE   256
+audio_sample_t      audio_buffer[AUDIO_BUFFER_SIZE];
+struct repeating_timer audio_timer;
+
+bool audio_timer_callback(struct repeating_timer *t) {
+    int size = get_write_size(&dvi0.audio_ring, false);
+    audio_sample_t *audio_ptr = get_write_pointer(&dvi0.audio_ring);
+    audio_sample_t sample;
+    static uint sample_count = 0;
+    for (int cnt = 0; cnt < size; cnt++) {
+        sample.channels[0] = commodore_argentina[sample_count % commodore_argentina_len] << 8;
+        sample.channels[1] = commodore_argentina[(sample_count+1024) % commodore_argentina_len] << 8;
+        *audio_ptr++ = sample;
+        sample_count = sample_count + 1;
+    }
+    increase_write_pointer(&dvi0.audio_ring, size);
+
+ 
+    return true;
+}
+
+
+
 int main(void)
 {
     vreg_set_voltage(VREG_VSEL);
@@ -155,12 +184,22 @@ int main(void)
     bufptr += FRAME_WIDTH;
     queue_add_blocking_u32(&dvi0.q_colour_valid, &bufptr);
 
+
+     // HDMI Audio related
+    dvi_get_blank_settings(&dvi0)->top    = 4 * 0;
+    dvi_get_blank_settings(&dvi0)->bottom = 4 * 0;
+    dvi_audio_sample_buffer_set(&dvi0, audio_buffer, AUDIO_BUFFER_SIZE);
+    dvi_set_audio_freq(&dvi0, 44100, 28000, 6272);
+    // dvi_set_audio_freq(&dvi0, 48000, 28000, 6272);
+    //add_repeating_timer_ms(2, audio_timer_callback, NULL, &audio_timer);
+
+
     printf("Core 1 start\n");
     multicore_launch_core1(core1_main);
 
     printf("Start rendering\n");
 
-    for (int i = 0; i <= 8; i++) {
+    for (int i = 0; i <= 11; i++) {
         gpio_init(i);
         gpio_set_dir(i, GPIO_IN);
         gpio_set_pulls(i, false, false);
@@ -168,8 +207,44 @@ int main(void)
 
     // Init PIO before starting the second core
     uint offset = pio_add_program(pio, &n64_program);
-    n64_program_init(pio, 0, offset);
-    pio_sm_set_enabled(pio, 0, true);
+    n64_video_program_init(pio, sm_video, offset);
+    pio_sm_set_enabled(pio, sm_video, true);
+
+    n64_audio_program_init(pio, sm_audio, offset);
+    pio_sm_set_enabled(pio, sm_audio, true);
+
+    set_write_offset(&dvi0.audio_ring, 0);
+    // set_read_offset(&dvi0.audio_ring, (AUDIO_BUFFER_SIZE) / 2 / 2);
+    set_read_offset(&dvi0.audio_ring, 0);
+
+    // Audio only test
+    while (true) {
+        // uint32_t sample = pio_sm_get_blocking(pio, sm_audio) >> 16;
+        // uint32_t sample = (pio_sm_get_blocking(pio, sm_audio) >> 16) & 0xffff;
+        // uint32_t sample = (pio_sm_get_blocking(pio, sm_audio)) & 0xffff;
+        uint32_t sample = pio_sm_get_blocking(pio, sm_audio);
+        // sample = ((sample << 8) | (sample >> 8));
+        // audio_sample_u_t *audio_ptr = get_write_pointer(&dvi0.audio_ring);
+        // audio_ptr->channels[0] = sample;
+        // audio_ptr->channels[1] = 0;
+
+        uint32_t *audio_ptr = get_write_pointer(&dvi0.audio_ring);
+        *audio_ptr = sample;
+
+        increase_write_pointer(&dvi0.audio_ring, 2);
+
+        // // Just copy the sample
+        // audio_ptr = get_write_pointer(&dvi0.audio_ring);
+        // *audio_ptr = sample;
+
+        // increase_write_pointer(&dvi0.audio_ring, 1);
+
+
+    }
+
+
+
+#if 0
 
     int count = 0;
     int row = 0;
@@ -212,7 +287,7 @@ int main(void)
 
         // 1. Find posedge VSYNC
         do {
-            BGRS = pio_sm_get_blocking(pio, sm);
+            BGRS = pio_sm_get_blocking(pio, sm_video);
         } while (!(BGRS & VSYNCB_MASK));
 
         // printf("VSYNC\n");
@@ -228,7 +303,7 @@ int main(void)
 
             // 2. Find posedge HSYNC
             do {
-                BGRS = pio_sm_get_blocking(pio, sm);
+                BGRS = pio_sm_get_blocking(pio, sm_video);
 
                 if ((BGRS & VSYNCB_MASK) == 0) {
                     // VSYNC found, time to quit
@@ -240,7 +315,7 @@ int main(void)
             if (skip_row) {
                 // Skip rows based on logic above
                 do {
-                    BGRS = pio_sm_get_blocking(pio, sm);
+                    BGRS = pio_sm_get_blocking(pio, sm_video);
 
                     if ((BGRS & VSYNCB_MASK) == 0) {
                         // VSYNC found, time to quit
@@ -264,11 +339,11 @@ int main(void)
             // const int left_crop = 42; // LibDragon 320x240 left-aligned
             const int left_crop = 36; // LibDragon 640x240 left-aligned
             for (int left_ctr = 0; left_ctr < left_crop; left_ctr++) {
-                BGRS = pio_sm_get_blocking(pio, sm);
+                BGRS = pio_sm_get_blocking(pio, sm_video);
             };
 
             // 3.2 Capture active pixels
-            BGRS = pio_sm_get_blocking(pio, sm);
+            BGRS = pio_sm_get_blocking(pio, sm_video);
             do {
                 // 3.3 Convert to RGB565 or 555
                 framebuf[count++] = (
@@ -292,21 +367,21 @@ int main(void)
                 if (count >= count_max) {
                     do {
                         // Consume all active pixels
-                        BGRS = pio_sm_get_blocking(pio, sm);
+                        BGRS = pio_sm_get_blocking(pio, sm_video);
                     } while ((BGRS & ACTIVE_PIXEL_MASK) == ACTIVE_PIXEL_MASK);
                     break;
                 }
 
                 // 3.4 Skip every second pixel
-                BGRS = pio_sm_get_blocking(pio, sm);
+                BGRS = pio_sm_get_blocking(pio, sm_video);
                 column++;
 
                 // Skip one extra pixel, for debugging
-                // BGRS = pio_sm_get_blocking(pio, sm);
+                // BGRS = pio_sm_get_blocking(pio, sm_video);
                 column++;
 
                 // Fetch new pixel in the end, so the loop logic can react to it first
-                BGRS = pio_sm_get_blocking(pio, sm);
+                BGRS = pio_sm_get_blocking(pio, sm_video);
 
 #if 0
                 // Optional code to check for active pixels.
@@ -347,6 +422,9 @@ end_of_line:
 
         frame++;
     }
+
+#endif
+
     __builtin_unreachable();
 }
 

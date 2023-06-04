@@ -6,19 +6,22 @@
 
 .program n64
 
+; Video
+; Data is stable on Negedge of CLK
 ; 0-6 = data
 ; 7   = dsync
 ; 8   = clk
 
-; Data is stable on Negedge of CLK
+; Audio
+;  9 = SDAT
+; 10 = LRCLK
+; 11 = BCLK
 
-n64_start:
+n64_video_start:
 
     ; Change IO dir of all pins to INPUT
     ; mov osr, null
     ; out pindirs, 32
-
-.wrap_target
 
 wait_for_dsyncn:
 
@@ -56,12 +59,64 @@ wait_for_dsyncn:
 
     push
 
-.wrap             ; Handle PI transactions forever!
+    jmp n64_video_start
+
+
+public n64_audio_start:
+    .wrap_target
+
+    ; First phase - let's do single channel PIO first
+
+    ; Wait for LRCLK = 1
+    ; Skip the first bit
+    ; Read 16 bits on BCLK rising edge into shiftreg
+    ; Wait for LRCLK = 0
+    ; Loop
+
+
+n64_audio_loop:
+    ; Wait for posedge LRCLK
+    wait 0 pin 1
+
+    ; Sample 16 bits
+    set x, 16
+
+    wait 1 pin 1
+
+    ; ------
+    ; Skip the first sample (17th bit of previous sample)
+    ; Wait for low BCLK
+    wait 0 pin 2
+
+    ; Wait for high BCLK
+    wait 1 pin 2
+
+    ; End of skip
+    ; ------
+
+
+n64_audio_sample_loop:
+    ; Wait for low BCLK
+    wait 0 pin 2
+
+    ; Wait for high BCLK
+    wait 1 pin 2
+
+    ; Sample a data bit
+    in pins, 1
+
+    jmp x-- n64_audio_sample_loop
+
+    push
+
+    jmp n64_audio_loop
+
+.wrap
 
 
 % c-sdk {
-void n64_program_init(PIO pio, uint sm, uint offset) {
-
+void n64_video_program_init(PIO pio, uint sm, uint offset)
+{
     // gpio0 -> 8 input
     for (int i = 0; i <= 8; i++) {
         pio_gpio_init(pio, i);
@@ -81,5 +136,26 @@ void n64_program_init(PIO pio, uint sm, uint offset) {
     sm_config_set_jmp_pin(&c, 7);
 
     pio_sm_init(pio, sm, offset, &c);
+}
+
+void n64_audio_program_init(PIO pio, uint sm, uint offset)
+{
+    // gpio9 -> 11 input
+    for (int i = 9; i <= 11; i++) {
+        pio_gpio_init(pio, i);
+    }
+
+    pio_sm_config c = n64_program_get_default_config(offset);
+
+    // Double the FIFO depth
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+
+    // MSB first, shift left
+    sm_config_set_in_shift(&c, false, false, 32);
+
+    // GPIO9 as in pin start
+    sm_config_set_in_pins(&c, 9);
+
+    pio_sm_init(pio, sm, offset + n64_offset_n64_audio_start, &c);
 }
 %}
