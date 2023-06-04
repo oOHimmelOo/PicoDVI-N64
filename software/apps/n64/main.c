@@ -124,26 +124,9 @@ void puttextf(uint x0, uint y0, uint bgcol, uint fgcol, const char *fmt, ...)
 
 
 //Audio Related
-#define AUDIO_BUFFER_SIZE   256
+#define AUDIO_BUFFER_SIZE   (256 * 16)
 audio_sample_t      audio_buffer[AUDIO_BUFFER_SIZE];
-struct repeating_timer audio_timer;
 
-bool audio_timer_callback(struct repeating_timer *t) {
-    int size = get_write_size(&dvi0.audio_ring, false);
-    audio_sample_t *audio_ptr = get_write_pointer(&dvi0.audio_ring);
-    audio_sample_t sample;
-    static uint sample_count = 0;
-    for (int cnt = 0; cnt < size; cnt++) {
-        sample.channels[0] = commodore_argentina[sample_count % commodore_argentina_len] << 8;
-        sample.channels[1] = commodore_argentina[(sample_count+1024) % commodore_argentina_len] << 8;
-        *audio_ptr++ = sample;
-        sample_count = sample_count + 1;
-    }
-    increase_write_pointer(&dvi0.audio_ring, size);
-
- 
-    return true;
-}
 
 
 
@@ -192,7 +175,6 @@ int main(void)
     // dvi_set_audio_freq(&dvi0, 44100, 28000, 6272);
     // dvi_set_audio_freq(&dvi0, 48000, 25200, 6144);
     dvi_set_audio_freq(&dvi0, 32000, 25200, 4096);
-    //add_repeating_timer_ms(2, audio_timer_callback, NULL, &audio_timer);
 
 
     printf("Core 1 start\n");
@@ -214,9 +196,9 @@ int main(void)
     n64_audio_program_init(pio, sm_audio, offset);
     pio_sm_set_enabled(pio, sm_audio, true);
 
-    set_write_offset(&dvi0.audio_ring, 0);
-    // set_read_offset(&dvi0.audio_ring, (AUDIO_BUFFER_SIZE) / 2 / 2);
-    set_read_offset(&dvi0.audio_ring, 0);
+    // set_write_offset(&dvi0.audio_ring, 0);
+    // set_read_offset(&dvi0.audio_ring, (AUDIO_BUFFER_SIZE) / 2);
+    // set_read_offset(&dvi0.audio_ring, 0);
 
     // Audio only test
     while (true) {
