@@ -76,6 +76,10 @@ public n64_audio_start:
     ;   Read 16 bits on BCLK rising edge into shiftreg
     ; }
 
+    ; Clear ISR, needed in case we end up here after a desync.
+    ; If not done, left/right will get swapped.
+    mov isr, null
+
     ; Wait for posedge LRCLK
     wait 0 pin 1
     wait 1 pin 1
