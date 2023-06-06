@@ -90,8 +90,7 @@ n64_audio_left_start:
     wait 0 pin 2
 
     ; Time between this step and the next is a few microseconds.
-    ; Use time to set variables etc.
-
+    ; Could use time to set variables etc.
     ; Set x=15 (Sample 16 bits)
     set x, 15
 
@@ -132,8 +131,6 @@ n64_audio_right_start:
     ; Set x=15 (Sample 16 bits)
     set x, 15
 
-    ; Double check that LRCLK == 0. Should help recover desync issues.
-
     ; Wait for high BCLK
     wait 1 pin 2
 
@@ -159,6 +156,10 @@ n64_audio_right_capture_loop:
 
     ; Push the 32 bits of data
     push
+
+    ; Double check that LRCLK == 0. Should help recover desync issues.
+    ; 'jmp pin' can only branch if the pin is high, so we can't do this in the Left case.
+    ; jmp pin n64_audio_start
 
     ; Loop (Implicit loop because of wrap/wrap_target)
     ; jmp n64_audio_left_start    
@@ -207,6 +208,10 @@ void n64_audio_program_init(PIO pio, uint sm, uint offset)
 
     // GPIO9 as in pin start
     sm_config_set_in_pins(&c, 9);
+
+    // JMP pin = LRCLK (gpio10)
+    // Note: pin is the raw pin number, not relative to in_pins
+    sm_config_set_jmp_pin(&c, 10);
 
     pio_sm_init(pio, sm, offset + n64_offset_n64_audio_start, &c);
 }
