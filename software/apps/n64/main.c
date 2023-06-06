@@ -124,7 +124,7 @@ void puttextf(uint x0, uint y0, uint bgcol, uint fgcol, const char *fmt, ...)
 
 
 //Audio Related
-#define AUDIO_BUFFER_SIZE   (256 * 16)
+#define AUDIO_BUFFER_SIZE   (256)
 audio_sample_t      audio_buffer[AUDIO_BUFFER_SIZE];
 
 
