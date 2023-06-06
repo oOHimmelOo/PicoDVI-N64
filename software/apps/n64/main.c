@@ -9,6 +9,7 @@
 #include "hardware/vreg.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
+#include "hardware/dma.h"
 
 #include "dvi.h"
 #include "dvi_serialiser.h"
@@ -124,8 +125,9 @@ void puttextf(uint x0, uint y0, uint bgcol, uint fgcol, const char *fmt, ...)
 
 
 //Audio Related
-#define AUDIO_BUFFER_SIZE   (256)
-audio_sample_t      audio_buffer[AUDIO_BUFFER_SIZE];
+#define AUDIO_BUFFER_SIZE   (256 * 32)
+audio_sample_t      audio_buffer_a[AUDIO_BUFFER_SIZE];
+audio_sample_t      audio_buffer_b[AUDIO_BUFFER_SIZE];
 
 
 
@@ -171,7 +173,8 @@ int main(void)
      // HDMI Audio related
     dvi_get_blank_settings(&dvi0)->top    = 4 * 0;
     dvi_get_blank_settings(&dvi0)->bottom = 4 * 0;
-    dvi_audio_sample_buffer_set(&dvi0, audio_buffer, AUDIO_BUFFER_SIZE);
+    // dvi_audio_sample_buffer_set(&dvi0, audio_buffer, AUDIO_BUFFER_SIZE);
+    // void dvi_audio_sample_dma_set_chan(struct dvi_inst *inst, int chan_a, audio_sample_t *buf_a, int chan_b, audio_sample_t *buf_b, int size) {
     // dvi_set_audio_freq(&dvi0, 44100, 28000, 6272);
     // dvi_set_audio_freq(&dvi0, 48000, 25200, 6144);
     dvi_set_audio_freq(&dvi0, 32000, 25200, 4096);
@@ -226,8 +229,64 @@ int main(void)
 
     }
 
-#else
+#elif 1
 
+
+#if 0
+    for (int i = 0; i < AUDIO_BUFFER_SIZE; i++) {
+        audio_buffer_a[i].channels[0] = rand();
+        audio_buffer_a[i].channels[1] = rand();
+
+        audio_buffer_b[i].channels[0] = rand();
+        audio_buffer_b[i].channels[1] = rand();
+    }
+#endif
+
+    // DMA
+    uint dma_chan_a = dma_claim_unused_channel(true);
+    // uint dma_chan_b = dma_claim_unused_channel(true);
+    // uint dma_chan_b = dma_chan_a;
+
+    // Chan A
+    dma_channel_config config_a = dma_channel_get_default_config(dma_chan_a);
+    channel_config_set_read_increment(&config_a, false);
+    channel_config_set_write_increment(&config_a, true);
+    channel_config_set_transfer_data_size(&config_a, DMA_SIZE_32);
+    // channel_config_set_chain_to(&config_a, dma_chan_b);
+    channel_config_set_irq_quiet(&config_a, true);
+    channel_config_set_dreq(&config_a, pio_get_dreq(pio, sm_audio, false));
+
+    dma_channel_configure(dma_chan_a, &config_a,
+        audio_buffer_a,        // Destination pointer
+        &pio->rxf[sm_audio],      // Source pointer
+        AUDIO_BUFFER_SIZE, // Number of transfers
+        false                // not Start immediately
+    );
+
+    // Chan B
+    // dma_channel_config config_b = dma_channel_get_default_config(dma_chan_b);
+    // channel_config_set_read_increment(&config_b, false);
+    // channel_config_set_write_increment(&config_b, true);
+    // channel_config_set_transfer_data_size(&config_b, DMA_SIZE_32);
+    // // channel_config_set_chain_to(&config_b, dma_chan_a);
+    // channel_config_set_irq_quiet(&config_b, true);
+    // channel_config_set_dreq(&config_b, pio_get_dreq(pio, sm_audio, false));
+
+    // dma_channel_configure(dma_chan_b, &config_b,
+    //     audio_buffer_b,        // Destination pointer
+    //     &pio->rxf[sm_audio],      // Source pointer
+    //     AUDIO_BUFFER_SIZE, // Number of transfers
+    //     false                // Do not start immediately
+    // );
+
+    // dvi_audio_sample_dma_set_chan(&dvi0, dma_chan_a, audio_buffer_a, dma_chan_b, audio_buffer_b, AUDIO_BUFFER_SIZE);
+    dvi_audio_sample_dma_set_chan(&dvi0, dma_chan_a, audio_buffer_a, 0, 0, AUDIO_BUFFER_SIZE);
+    // dvi_audio_sample_buffer_set(&dvi0, audio_buffer_a, AUDIO_BUFFER_SIZE);
+
+
+#endif
+
+#if 1
     // Video
 
     int count = 0;
@@ -403,6 +462,18 @@ end_of_line:
             crop_x = DEFAULT_CROP_X_NTSC;
             crop_y = DEFAULT_CROP_Y_NTSC;
         }
+
+        // Trigger DMA
+# if 1
+        if (!dma_channel_is_busy(dma_chan_a)) {
+            dma_channel_configure(dma_chan_a, &config_a,
+                audio_buffer_a,        // Destination pointer
+                &pio->rxf[sm_audio],      // Source pointer
+                AUDIO_BUFFER_SIZE, // Number of transfers
+                true                // not Start immediately
+            );
+        }
+#endif
 
         frame++;
     }

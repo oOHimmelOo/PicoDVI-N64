@@ -357,6 +357,14 @@ void dvi_audio_sample_buffer_set(struct dvi_inst *inst, audio_sample_t *buffer, 
     audio_ring_set(&inst->audio_ring, buffer, size);
 }
 
+void dvi_audio_sample_dma_set_chan(struct dvi_inst *inst, int chan_a, audio_sample_t *buf_a, int chan_b, audio_sample_t *buf_b, int size) {
+    inst->dma_chan_a = chan_a;
+    inst->dma_buf_a = buf_a;
+    inst->dma_chan_b = chan_b;
+    inst->dma_buf_b = buf_b;
+    inst->dma_size = size;
+}
+
 // video_freq: video sampling frequency
 // audio_freq: audio sampling frequency
 // CTS: Cycle Time Stamp
@@ -403,15 +411,34 @@ bool __dvi_func(dvi_update_data_packet_)(struct dvi_inst *inst, data_packet_t *p
         }
     }
     int sample_pos_16 = inst->audio_sample_pos >> 16;
-    int read_size = get_read_size(&inst->audio_ring, false);
-    int n = MAX(0, MIN(4, MIN(sample_pos_16, read_size)));
-    inst->audio_sample_pos -= n << 16;
-    if (n) {
-        audio_sample_t *audio_sample_ptr = get_read_pointer(&inst->audio_ring);
-        inst->audio_frame_count = set_audio_sample(packet, audio_sample_ptr, n, inst->audio_frame_count);
-        increase_read_pointer(&inst->audio_ring, n);
-        
-        return true;
+
+    if (inst->dma_size) {
+        // DMA
+        // audio_ring_set(&inst->audio_ring, inst->dma_buf_a, inst->dma_size);
+        inst->audio_ring.buffer = inst->dma_buf_a;
+        inst->audio_ring.size   = inst->dma_size;
+
+        int read_size = inst->dma_size;
+        int n = MAX(0, MIN(4, MIN(sample_pos_16, read_size)));
+        inst->audio_sample_pos -= n << 16;
+        if (n) {
+            audio_sample_t *audio_sample_ptr = get_read_pointer(&inst->audio_ring);
+            inst->audio_frame_count = set_audio_sample(packet, audio_sample_ptr, n, inst->audio_frame_count);
+            increase_read_pointer(&inst->audio_ring, n);
+            
+            return true;
+        }
+    } else {
+        int read_size = get_read_size(&inst->audio_ring, false);
+        int n = MAX(0, MIN(4, MIN(sample_pos_16, read_size)));
+        inst->audio_sample_pos -= n << 16;
+        if (n) {
+            audio_sample_t *audio_sample_ptr = get_read_pointer(&inst->audio_ring);
+            inst->audio_frame_count = set_audio_sample(packet, audio_sample_ptr, n, inst->audio_frame_count);
+            increase_read_pointer(&inst->audio_ring, n);
+            
+            return true;
+        }
     }
 
     return false;
