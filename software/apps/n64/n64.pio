@@ -62,6 +62,7 @@ n64_video_capture_loop:
 ; ----------------------------------------------------------
 
 public n64_audio_start:
+.wrap_target
 
     ; Wait for rising edge of LRCLK (known initial state)
     ; While true {
@@ -74,14 +75,14 @@ public n64_audio_start:
     ;   Read 16 bits on BCLK rising edge into shiftreg
     ; }
 
-
-    ; Wait for posedge LRCLK
+    ; The following ensures that LRCLK is in sync.
+    ; This is okay to do when we loop as well,
+    ; since we just finished capturing the right channel.
+    ; Ensure that LRCLK = 0 (Right channel active)
     wait 0 gpio 9
+
+    ; Ensure that LRCLK = 1 (Left channel active)
     wait 1 gpio 9
-
-n64_audio_left_start:
-
-.wrap_target
 
     ; ------
     ; Skip the first sample (17th stray bit of previous sample)
@@ -151,18 +152,11 @@ n64_audio_right_capture_loop:
 ; Right channel has been captured.
 ; ----------------------------------------------------------
 
-    ; Auto-push is enabled, saves one instruction/cycle
+    ; Auto-push is disabled in order to have better control over the ISR bit-alignment.
     push
 
-    ; The following ensures that LRCLK is in sync:
-    ; Ensure that LRCLK = 0 (Right channel active)
-    wait 0 gpio 9
-
-    ; Ensure that LRCLK = 1 (Left channel active)
-    wait 1 gpio 9
-
     ; Loop (Implicit loop because of wrap/wrap_target)
-    ; jmp n64_audio_left_start
+    ; jmp n64_audio_start
 
 .wrap
 
