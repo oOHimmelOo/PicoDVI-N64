@@ -78,8 +78,9 @@ n64_audio_loop:
     ; Wait for posedge LRCLK
     wait 0 pin 1
 
-    ; Sample 16 bits
-    set x, 16
+    ; Set x=15 (Sample 16 bits)
+    ; This is done here because we have more time.
+    set x, 15
 
     wait 1 pin 1
 
