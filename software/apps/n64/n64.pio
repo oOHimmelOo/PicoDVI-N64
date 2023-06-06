@@ -63,31 +63,39 @@ wait_for_dsyncn:
 
 
 public n64_audio_start:
-    .wrap_target
 
     ; First phase - let's do single channel PIO first
 
-    ; Wait for LRCLK = 1
-    ; Skip the first bit
-    ; Read 16 bits on BCLK rising edge into shiftreg
-    ; Wait for LRCLK = 0
-    ; Loop
+    ; Wait for rising edge of LRCLK (known initial state)
+    ; While true {
+    ;   Skip the first bit (Left channel)
+    ;   Read 16 bits on BCLK rising edge into shiftreg
+    ;     If LRCLK == 0, break
+    ;   Skip the first bit (Right channel)
+    ;   Read 16 bits on BCLK rising edge into shiftreg
+    ;     If LRCLK == 1, break
+    ; }
 
-
-n64_audio_loop:
     ; Wait for posedge LRCLK
     wait 0 pin 1
-
-    ; Set x=15 (Sample 16 bits)
-    ; This is done here because we have more time.
-    set x, 15
-
     wait 1 pin 1
 
+n64_audio_left_start:
+
+.wrap_target
+
     ; ------
-    ; Skip the first sample (17th bit of previous sample)
+    ; Skip the first sample (17th stray bit of previous sample)
     ; Wait for low BCLK
     wait 0 pin 2
+
+    ; Time between this step and the next is a few microseconds.
+    ; Use time to set variables etc.
+
+    ; Set x=15 (Sample 16 bits)
+    set x, 15
+
+    ; Double check that LRCLK == 1. Should help recover desync issues.
 
     ; Wait for high BCLK
     wait 1 pin 2
@@ -95,8 +103,7 @@ n64_audio_loop:
     ; End of skip
     ; ------
 
-
-n64_audio_sample_loop:
+n64_audio_left_capture_loop:
     ; Wait for low BCLK
     wait 0 pin 2
 
@@ -106,11 +113,55 @@ n64_audio_sample_loop:
     ; Sample a data bit
     in pins, 1
 
-    jmp x-- n64_audio_sample_loop
+    jmp x-- n64_audio_left_capture_loop
 
+; ----------------------------------------------------------
+; Left channel has been captured. Capture right channel now.
+; ----------------------------------------------------------
+
+n64_audio_right_start:
+
+    ; ------
+    ; Skip the first sample (17th stray bit of previous sample)
+    ; Wait for low BCLK
+    wait 0 pin 2
+
+    ; Time between this step and the next is a few microseconds.
+    ; Use time to set variables etc.
+
+    ; Set x=15 (Sample 16 bits)
+    set x, 15
+
+    ; Double check that LRCLK == 0. Should help recover desync issues.
+
+    ; Wait for high BCLK
+    wait 1 pin 2
+
+    ; End of skip
+    ; ------
+
+
+n64_audio_right_capture_loop:
+    ; Wait for low BCLK
+    wait 0 pin 2
+
+    ; Wait for high BCLK
+    wait 1 pin 2
+
+    ; Sample a data bit
+    in pins, 1
+
+    jmp x-- n64_audio_right_capture_loop
+
+; ----------------------------------------------------------
+; Right channel has been captured.
+; ----------------------------------------------------------
+
+    ; Push the 32 bits of data
     push
 
-    jmp n64_audio_loop
+    ; Loop (Implicit loop because of wrap/wrap_target)
+    ; jmp n64_audio_left_start    
 
 .wrap
 
