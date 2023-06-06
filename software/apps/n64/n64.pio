@@ -67,12 +67,13 @@ public n64_audio_start:
 
     ; Wait for rising edge of LRCLK (known initial state)
     ; While true {
-    ;   Skip the first bit (Left channel)
+    ;   LRCLK == 1 (Left channel)
+    ;   Skip the first bit (Right channel left-over)
     ;   Read 16 bits on BCLK rising edge into shiftreg
-    ;     If LRCLK == 0, break
-    ;   Skip the first bit (Right channel)
+    ;   LRCLK == 0 (Right channel)
+    ;   Skip the first bit (Left channel left-over)
+    ;     If LRCLK == 1, break // Should only happen if sync is lost
     ;   Read 16 bits on BCLK rising edge into shiftreg
-    ;     If LRCLK == 1, break
     ; }
 
     ; Wait for posedge LRCLK
@@ -92,8 +93,6 @@ n64_audio_left_start:
     ; Could use time to set variables etc.
     ; Set x=15 (Sample 16 bits)
     set x, 15
-
-    ; Double check that LRCLK == 1. Should help recover desync issues.
 
     ; Wait for high BCLK
     wait 1 pin 2
@@ -127,6 +126,10 @@ n64_audio_right_start:
     ; Time between this step and the next is a few microseconds.
     ; Use time to set variables etc.
 
+    ; Double check that LRCLK == 0. Should help recover desync issues.
+    ; 'jmp pin' can only branch if the pin is high, so we can't do this in the Left case.
+    jmp pin n64_audio_start
+
     ; Set x=15 (Sample 16 bits)
     set x, 15
 
@@ -153,15 +156,11 @@ n64_audio_right_capture_loop:
 ; Right channel has been captured.
 ; ----------------------------------------------------------
 
-    ; Push the 32 bits of data
-    push
-
-    ; Double check that LRCLK == 0. Should help recover desync issues.
-    ; 'jmp pin' can only branch if the pin is high, so we can't do this in the Left case.
-    ; jmp pin n64_audio_start
+    ; Auto-push is enabled, saves one instruction/cycle
+    ; push
 
     ; Loop (Implicit loop because of wrap/wrap_target)
-    ; jmp n64_audio_left_start    
+    ; jmp n64_audio_left_start
 
 .wrap
 
@@ -204,7 +203,7 @@ void n64_audio_program_init(PIO pio, uint sm, uint offset)
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
 
     // MSB first, shift left
-    sm_config_set_in_shift(&c, false, false, 32);
+    sm_config_set_in_shift(&c, false, true, 32);
 
     // GPIO9 as in pin start
     sm_config_set_in_pins(&c, 9);
