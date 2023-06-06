@@ -22,6 +22,7 @@
 ; ----------------------------------------------------------
 
 public n64_video_start:
+.wrap_target
 
     ; Wait for high CLK
     wait 1 pin 8
@@ -55,14 +56,15 @@ n64_video_capture_loop:
     ; Auto-push is enabled, saves one instruction/cycle
     ; push
 
-    jmp n64_video_start
+    ; Utilize wrap insead
+    ; jmp n64_video_start
+.wrap
 
 ; ----------------------------------------------------------
 ; Audio data sampling
 ; ----------------------------------------------------------
 
 public n64_audio_start:
-.wrap_target
 
     ; Wait for rising edge of LRCLK (known initial state)
     ; While true {
@@ -156,9 +158,8 @@ n64_audio_right_capture_loop:
     push
 
     ; Loop (Implicit loop because of wrap/wrap_target)
-    ; jmp n64_audio_start
+    jmp n64_audio_start
 
-.wrap
 
 
 % c-sdk {
