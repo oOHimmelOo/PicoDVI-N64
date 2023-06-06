@@ -63,8 +63,6 @@ n64_video_capture_loop:
 
 public n64_audio_start:
 
-    ; First phase - let's do single channel PIO first
-
     ; Wait for rising edge of LRCLK (known initial state)
     ; While true {
     ;   LRCLK == 1 (Left channel)
