@@ -12,9 +12,9 @@
 ; 7   = dsync
 ; 8   = clk
 
-; Audio
-;  9 = SDAT
-; 10 = LRCLK
+; Audio (pinout matches the drawing in the repo)
+;  9 = LRCLK
+; 10 = SDAT
 ; 11 = BCLK
 
 ; ----------------------------------------------------------
@@ -79,8 +79,8 @@ public n64_audio_start:
     mov isr, null
 
     ; Wait for posedge LRCLK
-    wait 0 pin 1
-    wait 1 pin 1
+    wait 0 gpio 9
+    wait 1 gpio 9
 
 n64_audio_left_start:
 
@@ -89,7 +89,7 @@ n64_audio_left_start:
     ; ------
     ; Skip the first sample (17th stray bit of previous sample)
     ; Wait for low BCLK
-    wait 0 pin 2
+    wait 0 gpio 11
 
     ; Time between this step and the next is a few microseconds.
     ; Could use time to set variables etc.
@@ -97,17 +97,17 @@ n64_audio_left_start:
     set x, 15
 
     ; Wait for high BCLK
-    wait 1 pin 2
+    wait 1 gpio 11
 
     ; End of skip
     ; ------
 
 n64_audio_left_capture_loop:
     ; Wait for low BCLK
-    wait 0 pin 2
+    wait 0 gpio 11
 
     ; Wait for high BCLK
-    wait 1 pin 2
+    wait 1 gpio 11
 
     ; Sample a data bit
     in pins, 1
@@ -123,7 +123,7 @@ n64_audio_right_start:
     ; ------
     ; Skip the first sample (17th stray bit of previous sample)
     ; Wait for low BCLK
-    wait 0 pin 2
+    wait 0 gpio 11
 
     ; Time between this step and the next is a few microseconds.
     ; Use time to set variables etc.
@@ -136,7 +136,7 @@ n64_audio_right_start:
     set x, 15
 
     ; Wait for high BCLK
-    wait 1 pin 2
+    wait 1 gpio 11
 
     ; End of skip
     ; ------
@@ -144,10 +144,10 @@ n64_audio_right_start:
 
 n64_audio_right_capture_loop:
     ; Wait for low BCLK
-    wait 0 pin 2
+    wait 0 gpio 11
 
     ; Wait for high BCLK
-    wait 1 pin 2
+    wait 1 gpio 11
 
     ; Sample a data bit
     in pins, 1
@@ -207,12 +207,12 @@ void n64_audio_program_init(PIO pio, uint sm, uint offset)
     // MSB first, shift left
     sm_config_set_in_shift(&c, false, true, 32);
 
-    // GPIO9 as in pin start
-    sm_config_set_in_pins(&c, 9);
+    // SDAT/GPIO10 as in start pin
+    sm_config_set_in_pins(&c, 10);
 
-    // JMP pin = LRCLK (gpio10)
+    // JMP pin = LRCLK (gpio9)
     // Note: pin is the raw pin number, not relative to in_pins
-    sm_config_set_jmp_pin(&c, 10);
+    sm_config_set_jmp_pin(&c, 9);
 
     pio_sm_init(pio, sm, offset + n64_offset_n64_audio_start, &c);
 }
