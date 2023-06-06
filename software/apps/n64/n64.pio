@@ -74,9 +74,6 @@ public n64_audio_start:
     ;   Read 16 bits on BCLK rising edge into shiftreg
     ; }
 
-    ; Clear ISR, needed in case we end up here after a desync.
-    ; If not done, left/right will get swapped.
-    mov isr, null
 
     ; Wait for posedge LRCLK
     wait 0 gpio 9
@@ -128,10 +125,6 @@ n64_audio_right_start:
     ; Time between this step and the next is a few microseconds.
     ; Use time to set variables etc.
 
-    ; Double check that LRCLK == 0. Should help recover desync issues.
-    ; 'jmp pin' can only branch if the pin is high, so we can't do this in the Left case.
-    jmp pin n64_audio_start
-
     ; Set x=15 (Sample 16 bits)
     set x, 15
 
@@ -159,7 +152,14 @@ n64_audio_right_capture_loop:
 ; ----------------------------------------------------------
 
     ; Auto-push is enabled, saves one instruction/cycle
-    ; push
+    push
+
+    ; The following ensures that LRCLK is in sync:
+    ; Ensure that LRCLK = 0 (Right channel active)
+    wait 0 gpio 9
+
+    ; Ensure that LRCLK = 1 (Left channel active)
+    wait 1 gpio 9
 
     ; Loop (Implicit loop because of wrap/wrap_target)
     ; jmp n64_audio_left_start
@@ -204,15 +204,11 @@ void n64_audio_program_init(PIO pio, uint sm, uint offset)
     // Double the FIFO depth
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
 
-    // MSB first, shift left
-    sm_config_set_in_shift(&c, false, true, 32);
+    // MSB first / shift left, disable autopush
+    sm_config_set_in_shift(&c, false, false, 32);
 
     // SDAT/GPIO10 as in start pin
     sm_config_set_in_pins(&c, 10);
-
-    // JMP pin = LRCLK (gpio9)
-    // Note: pin is the raw pin number, not relative to in_pins
-    sm_config_set_jmp_pin(&c, 9);
 
     pio_sm_init(pio, sm, offset + n64_offset_n64_audio_start, &c);
 }
