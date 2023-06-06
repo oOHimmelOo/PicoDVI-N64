@@ -200,6 +200,7 @@ int main(void)
     // set_read_offset(&dvi0.audio_ring, (AUDIO_BUFFER_SIZE) / 2);
     // set_read_offset(&dvi0.audio_ring, 0);
 
+#if 0
     // Audio only test
     while (true) {
         // uint32_t sample = pio_sm_get_blocking(pio, sm_audio) >> 16;
@@ -225,9 +226,9 @@ int main(void)
 
     }
 
+#else
 
-
-#if 0
+    // Video
 
     int count = 0;
     int row = 0;
