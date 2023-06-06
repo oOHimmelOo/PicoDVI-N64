@@ -28,7 +28,9 @@
 #define FONT_N_CHARS 95
 #define FONT_FIRST_ASCII 32
 
-// Row configuration for PAL vs NTSC
+// Crop configuration for PAL vs NTSC
+#define DEFAULT_CROP_X_PAL  (36)
+#define DEFAULT_CROP_X_NTSC (14)
 #define DEFAULT_CROP_Y_PAL  (90)
 #define DEFAULT_CROP_Y_NTSC (25)
 #define ROWS_PAL            (615)
@@ -255,8 +257,8 @@ int main(void)
 
     uint32_t BGRS;
     uint32_t frame = 0;
+    uint32_t crop_x = DEFAULT_CROP_X_PAL;
     uint32_t crop_y = DEFAULT_CROP_Y_PAL;
-
 #ifdef DIAGNOSTICS
     const volatile uint32_t *pGetTime = &timer_hw->timerawl;
     uint32_t t0 = 0;
@@ -317,9 +319,7 @@ int main(void)
             // 3.  Capture scanline
 
             // 3.1 Crop left black bar
-            // const int left_crop = 42; // LibDragon 320x240 left-aligned
-            const int left_crop = 36; // LibDragon 640x240 left-aligned
-            for (int left_ctr = 0; left_ctr < left_crop; left_ctr++) {
+            for (int left_ctr = 0; left_ctr < crop_x; left_ctr++) {
                 BGRS = pio_sm_get_blocking(pio, sm_video);
             };
 
@@ -395,9 +395,11 @@ end_of_line:
 
         // Perform NTSC / PAL detection based on number of rows
         if (IN_TOLERANCE(row, ROWS_PAL, ROWS_TOLERANCE)) {
+            crop_x = DEFAULT_CROP_X_PAL;
             crop_y = DEFAULT_CROP_Y_PAL;
         } else {
             // In case the mode can't be detected, default to NTSC as it crops fewer rows
+            crop_x = DEFAULT_CROP_X_NTSC;
             crop_y = DEFAULT_CROP_Y_NTSC;
         }
 
