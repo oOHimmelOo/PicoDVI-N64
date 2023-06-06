@@ -15,8 +15,6 @@
 #include "common_dvi_pin_configs.h"
 #include "sprite.h"
 
-#include "audio.h"
-
 #include "n64.pio.h"
 
 
@@ -77,7 +75,7 @@ void core1_main(void)
     __builtin_unreachable();
 }
 
-void core1_scanline_callback(void)
+void core1_scanline_callback(uint)
 {
     // Discard any scanline pointers passed back
     uint16_t *bufptr;
@@ -211,7 +209,7 @@ int main(void)
         // audio_ptr->channels[0] = sample;
         // audio_ptr->channels[1] = 0;
 
-        uint32_t *audio_ptr = get_write_pointer(&dvi0.audio_ring);
+        uint32_t *audio_ptr = (uint32_t *) get_write_pointer(&dvi0.audio_ring);
         *audio_ptr = sample;
 
         increase_write_pointer(&dvi0.audio_ring, 1);
