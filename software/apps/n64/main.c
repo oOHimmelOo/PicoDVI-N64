@@ -16,11 +16,14 @@
 #include "common_dvi_pin_configs.h"
 #include "sprite.h"
 
+#include "joybus.h"
+
 #include "n64.pio.h"
 
 
 // Uncomment to print diagnostic data on the screen
-// #define DIAGNOSTICS
+#define DIAGNOSTICS
+#define DIAGNOSTICS_JOYBUS
 
 // Font
 #include "font_8x8.h"
@@ -28,6 +31,21 @@
 #define FONT_CHAR_HEIGHT 8
 #define FONT_N_CHARS 95
 #define FONT_FIRST_ASCII 32
+
+// Pinout reference
+#define PIN_VIDEO_D0     0
+#define PIN_VIDEO_D1     1
+#define PIN_VIDEO_D2     2
+#define PIN_VIDEO_D3     3
+#define PIN_VIDEO_D4     4
+#define PIN_VIDEO_D5     5
+#define PIN_VIDEO_D6     6
+#define PIN_VIDEO_DSYNC  7
+#define PIN_VIDEO_CLK    8
+#define PIN_AUDIO_LRCLK  9
+#define PIN_AUDIO_SDAT  10
+#define PIN_AUDIO_BCLK  11
+#define PIN_JOYBUS_P1   20
 
 // Crop configuration for PAL vs NTSC
 #define DEFAULT_CROP_X_PAL  (36)
@@ -67,6 +85,7 @@
 const PIO pio = pio1;
 const uint sm_video = 0;
 const uint sm_audio = 1;
+const uint sm_joybus_rx = 2;
 struct dvi_inst dvi0;
 uint16_t framebuf[FRAME_WIDTH * FRAME_HEIGHT];
 
@@ -185,19 +204,26 @@ int main(void)
 
     printf("Start rendering\n");
 
-    for (int i = 0; i <= 11; i++) {
+    for (int i = 0; i <= 12; i++) {
         gpio_init(i);
         gpio_set_dir(i, GPIO_IN);
         gpio_set_pulls(i, false, false);
     }
 
     // Init PIO before starting the second core
+
+    // Video
     uint offset = pio_add_program(pio, &n64_program);
     n64_video_program_init(pio, sm_video, offset);
     pio_sm_set_enabled(pio, sm_video, true);
 
+    // Audio
     n64_audio_program_init(pio, sm_audio, offset);
     pio_sm_set_enabled(pio, sm_audio, true);
+
+    // Joybus RX
+    n64_joybus_rx_program_init(pio, sm_joybus_rx, offset, PIN_JOYBUS_P1);
+    pio_sm_set_enabled(pio, sm_joybus_rx, true);
 
     // set_write_offset(&dvi0.audio_ring, 0);
     // set_read_offset(&dvi0.audio_ring, (AUDIO_BUFFER_SIZE) / 2);
@@ -285,6 +311,40 @@ int main(void)
 
 
 #endif
+
+#ifdef DIAGNOSTICS_JOYBUS
+
+    uint32_t transfer = 0;
+    uint32_t y = 0;
+    uint32_t value[8];
+    while (true) {
+        for (int i = 0; i < 8; i++) {
+            value[i] = pio_sm_get_blocking(pio, sm_joybus_rx);
+        }
+
+        for (int i = 0; i < 8; i++) {
+            transfer++;
+            puttextf(0, y * 8, 0xffff, 0x0000, "transfer %d: %02X %02X %02X %02X %02X %02X %02X %02X",
+              transfer, 
+              value[0],
+              value[1],
+              value[2],
+              value[3],
+              value[4],
+              value[5],
+              value[6],
+              value[7]);
+        }
+
+        y++;
+
+        if (y > 24) {
+            y = 0;
+        }
+    }
+
+#endif
+
 
 #if 1
     // Video
