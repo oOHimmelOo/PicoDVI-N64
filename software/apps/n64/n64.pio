@@ -66,15 +66,35 @@ n64_video_capture_loop:
 
 public n64_audio_start:
 
-    ; Wait for rising edge of LRCLK (known initial state)
-    ; While true {
-    ;   LRCLK == 1 (Left channel)
-    ;   Skip the first bit (Right channel left-over)
-    ;   Read 16 bits on BCLK rising edge into shiftreg
-    ;   LRCLK == 0 (Right channel)
-    ;   Skip the first bit (Left channel left-over)
-    ;     If LRCLK == 1, break // Should only happen if sync is lost
-    ;   Read 16 bits on BCLK rising edge into shiftreg
+    ; Loop {
+    ;   Wait for rising edge of LRCLK (known initial state, recover from lost sync)
+    ;   Do {
+    ;     Iteration 1:
+    ;       LRCLK == 1 (Left channel)
+    ;       BCLK  == 1 or 0
+    ;       Skip the first bit (stray bit)
+    ;       Wait for BCLK == 0
+    ;       Set X = 15
+    ;       Wait for BCLK == 1
+    ;       Do {
+    ;         Wait for rising edge of BCLK
+    ;         Sample SDAT into ISR
+    ;       } While X--
+    ;       // ISR has 16 bits of sample data now
+    ;     Iteration 2:
+    ;       LRCLK == 1 (Left channel)
+    ;       BCLK  == 1
+    ;       Skip the first bit (stray bit)
+    ;       Wait for BCLK == 0
+    ;       Set X = 15
+    ;       Wait for BCLK == 1
+    ;       Do {
+    ;         Wait for rising edge of BCLK
+    ;         Sample SDAT into ISR
+    ;       } While X--
+    ;       // ISR has 32 bits of sample data now
+    ;   } While LRCLK == 1 // loop only once in practice - If not, endless loop, no push
+    ;   Push // By doing this manually, the ISR should be 2x16 bit words in order)
     ; }
 
     ; The following ensures that LRCLK is in sync.
@@ -85,6 +105,9 @@ public n64_audio_start:
 
     ; Ensure that LRCLK = 1 (Left channel active)
     wait 1 gpio 9
+
+    ; This label is used when capturing the second word
+n64_audio_capture_word:
 
     ; ------
     ; Skip the first sample (17th stray bit of previous sample)
@@ -118,37 +141,12 @@ n64_audio_left_capture_loop:
 ; Left channel has been captured. Capture right channel now.
 ; ----------------------------------------------------------
 
-n64_audio_right_start:
-
-    ; ------
-    ; Skip the first sample (17th stray bit of previous sample)
-    ; Wait for low BCLK
-    wait 0 gpio 11
-
-    ; Time between this step and the next is a few microseconds.
-    ; Use time to set variables etc.
-
-    ; Set x=15 (Sample 16 bits)
-    set x, 15
-
-    ; Wait for high BCLK
-    wait 1 gpio 11
-
-    ; End of skip
-    ; ------
-
-
-n64_audio_right_capture_loop:
-    ; Wait for low BCLK
-    wait 0 gpio 11
-
-    ; Wait for high BCLK
-    wait 1 gpio 11
-
-    ; Sample a data bit
-    in pins, 1
-
-    jmp x-- n64_audio_right_capture_loop
+    ; Iterate once more to capture the right channel.
+    ; To do this in one instruction without using x/y, let's use the LRCLK pin.
+    ; An added bonus is that we end up in an endless loop here without pushing.
+    ; This means that we will _not_ push junk data to the audio buffer, i.e.
+    ; there should not be any harsh noise in case of a random un-synced state.
+    jmp pin n64_audio_capture_word
 
 ; ----------------------------------------------------------
 ; Right channel has been captured.
@@ -204,6 +202,9 @@ void n64_audio_program_init(PIO pio, uint sm, uint offset)
 
     // SDAT/GPIO10 as in start pin
     sm_config_set_in_pins(&c, 10);
+
+    // JMP pin = LRCLK
+    sm_config_set_jmp_pin(&c, 9);
 
     pio_sm_init(pio, sm, offset + n64_offset_n64_audio_start, &c);
 }
