@@ -86,6 +86,7 @@ public n64_audio_start:
     ;       BCLK  == 1
     ;       Skip the first bit (stray bit)
     ;       Wait for BCLK == 0
+    ;       LRCLK == 0 (Right channel now)
     ;       Set X = 15
     ;       Wait for BCLK == 1
     ;       Do {
