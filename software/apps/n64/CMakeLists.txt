@@ -3,6 +3,7 @@
 # add_definitions(-DRUN_FROM_CRYSTAL)
 
 add_executable(n64
+	joybus.c
 	main.c
 )
 

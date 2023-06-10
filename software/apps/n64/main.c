@@ -23,8 +23,8 @@
 
 
 // Uncomment to print diagnostic data on the screen
-//#define DIAGNOSTICS
-//#define DIAGNOSTICS_JOYBUS
+#define DIAGNOSTICS
+#define DIAGNOSTICS_JOYBUS
 
 // Font
 #include "font_8x8.h"
@@ -84,7 +84,7 @@
 #define ARRAY_SIZE(x) (sizeof(x)/sizeof(x[0]))
 
 const PIO pio_joybus = DVI_DEFAULT_SERIAL_CONFIG.pio; // usually pio0
-const uint sm_joybus_rx = 3; // last free sm in pio0 unless sm_tmds is set to something unusual
+const uint sm_joybus = 3; // last free sm in pio0 unless sm_tmds is set to something unusual
 
 const PIO pio = (DVI_DEFAULT_SERIAL_CONFIG.pio == pio0) ? pio1 : pio0;
 const uint sm_video = 0;
@@ -154,6 +154,7 @@ void puttextf(uint x0, uint y0, uint bgcol, uint fgcol, const char *fmt, ...)
 #define AUDIO_BUFFER_SIZE   (256 * 32)
 audio_sample_t      audio_buffer_a[AUDIO_BUFFER_SIZE];
 audio_sample_t      audio_buffer_b[AUDIO_BUFFER_SIZE];
+
 
 
 
@@ -232,8 +233,8 @@ int main(void)
 
     // Joybus RX
     uint offset_joybus = pio_add_program(pio_joybus, &joybus_program);
-    joybus_rx_program_init(pio_joybus, sm_joybus_rx, offset_joybus, PIN_JOYBUS_P1);
-    pio_sm_set_enabled(pio_joybus, sm_joybus_rx, true);
+    joybus_rx_program_init(pio_joybus, sm_joybus, offset_joybus, PIN_JOYBUS_P1);
+    pio_sm_set_enabled(pio_joybus, sm_joybus, true);
 
     // set_write_offset(&dvi0.audio_ring, 0);
     // set_read_offset(&dvi0.audio_ring, (AUDIO_BUFFER_SIZE) / 2);
@@ -326,14 +327,17 @@ int main(void)
 
     uint32_t transfer = 0;
     uint32_t y = 0;
-    uint32_t value[8];
 
     puttextf(0, y++ * 8, 0xffff, 0x0000, "hello");
     puttextf(0, y++ * 8, 0xffff, 0x0000, "offset_joybus = %d", offset_joybus);
 
     while (true) {
+
+        // The following code prints the raw PIO data
+#if 0
+        uint32_t value[8];
         for (int i = 0; i < 4; i++) {
-            value[i] = pio_sm_get_blocking(pio_joybus, sm_joybus_rx);
+            value[i] = pio_sm_get_blocking(pio_joybus, sm_joybus);
         }
 
         transfer++;
@@ -347,6 +351,50 @@ int main(void)
             y = 0;
             sleep_ms(2000);
         }
+
+#else
+        // Use helper functions to decode the last controller state
+        uint32_t value = joybus_rx_get_latest(pio_joybus, sm_joybus);
+
+        y = 0;
+        transfer++;
+
+        puttextf(0, y++ * 8, 0xffff, 0x0000, "%02d: A=%d B=%d Z=%d Start=%d",
+            transfer, 
+            !!A_BUTTON(value), 
+            !!B_BUTTON(value), 
+            !!Z_BUTTON(value), 
+            !!START_BUTTON(value));
+
+        puttextf(0, y++ * 8, 0xffff, 0x0000, "%02d: DU=%d DD=%d DL=%d DR=%d",
+            transfer, 
+            !!DU_BUTTON(value), 
+            !!DD_BUTTON(value), 
+            !!DL_BUTTON(value), 
+            !!DR_BUTTON(value));
+
+        puttextf(0, y++ * 8, 0xffff, 0x0000, "%02d: Reset=%d",
+            transfer, 
+            !!RESET_BUTTON(value));
+
+        puttextf(0, y++ * 8, 0xffff, 0x0000, "%02d: TL=%d TR=%d",
+            transfer, 
+            !!TL_BUTTON(value), 
+            !!TR_BUTTON(value));
+
+        puttextf(0, y++ * 8, 0xffff, 0x0000, "%02d: CU=%d CD=%d CL=%d CR=%d",
+            transfer, 
+            !!CU_BUTTON(value), 
+            !!CD_BUTTON(value), 
+            !!CL_BUTTON(value), 
+            !!CR_BUTTON(value));
+
+        puttextf(0, y++ * 8, 0xffff, 0x0000, "%02d: X=%04d Y=%04d",
+            transfer, 
+            X_STICK(value), 
+            Y_STICK(value));
+#endif
+
     }
 
 
