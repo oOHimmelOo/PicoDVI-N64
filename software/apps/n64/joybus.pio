@@ -90,9 +90,6 @@ void joybus_rx_program_init(PIO pio, uint sm, uint offset, uint pin)
     // sm_config_set_wrap(&c, offset + joybus_offset_n64_audio_start, offset + joybus_offset_n64_audio_wrap);
     pio_sm_config c = joybus_program_get_default_config(offset);
 
-    // Double the FIFO depth
-    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
-
     sm_config_set_in_pins(&c, pin);
     sm_config_set_jmp_pin(&c, pin);
 
