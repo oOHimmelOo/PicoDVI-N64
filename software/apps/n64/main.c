@@ -23,8 +23,8 @@
 
 
 // Uncomment to print diagnostic data on the screen
-#define DIAGNOSTICS
-#define DIAGNOSTICS_JOYBUS
+// #define DIAGNOSTICS
+// #define DIAGNOSTICS_JOYBUS
 
 // Font
 #include "font_8x8.h"
@@ -589,6 +589,52 @@ end_of_line:
             );
         }
 #endif
+
+
+#if 1
+    {
+        // Use helper functions to decode the last controller state
+        uint32_t value = joybus_rx_get_latest(pio_joybus, sm_joybus);
+
+        uint32_t y = 20;
+
+        puttextf(0, y++ * 8, 0xffff, 0x0000, "%02d: A=%d B=%d Z=%d Start=%d",
+            frame, 
+            !!A_BUTTON(value), 
+            !!B_BUTTON(value), 
+            !!Z_BUTTON(value), 
+            !!START_BUTTON(value));
+
+        puttextf(0, y++ * 8, 0xffff, 0x0000, "%02d: DU=%d DD=%d DL=%d DR=%d",
+            frame, 
+            !!DU_BUTTON(value), 
+            !!DD_BUTTON(value), 
+            !!DL_BUTTON(value), 
+            !!DR_BUTTON(value));
+
+        puttextf(0, y++ * 8, 0xffff, 0x0000, "%02d: Reset=%d",
+            frame, 
+            !!RESET_BUTTON(value));
+
+        puttextf(0, y++ * 8, 0xffff, 0x0000, "%02d: TL=%d TR=%d",
+            frame, 
+            !!TL_BUTTON(value), 
+            !!TR_BUTTON(value));
+
+        puttextf(0, y++ * 8, 0xffff, 0x0000, "%02d: CU=%d CD=%d CL=%d CR=%d",
+            frame, 
+            !!CU_BUTTON(value), 
+            !!CD_BUTTON(value), 
+            !!CL_BUTTON(value), 
+            !!CR_BUTTON(value));
+
+        puttextf(0, y++ * 8, 0xffff, 0x0000, "%02d: X=%04d Y=%04d",
+            frame, 
+            X_STICK(value), 
+            Y_STICK(value));
+    }
+#endif
+
 
         frame++;
     }
