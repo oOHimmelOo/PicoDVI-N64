@@ -18,12 +18,13 @@
 
 #include "joybus.h"
 
+#include "joybus.pio.h"
 #include "n64.pio.h"
 
 
 // Uncomment to print diagnostic data on the screen
-#define DIAGNOSTICS
-#define DIAGNOSTICS_JOYBUS
+//#define DIAGNOSTICS
+//#define DIAGNOSTICS_JOYBUS
 
 // Font
 #include "font_8x8.h"
@@ -82,12 +83,18 @@
 
 #define ARRAY_SIZE(x) (sizeof(x)/sizeof(x[0]))
 
-const PIO pio = pio1;
+const PIO pio_joybus = DVI_DEFAULT_SERIAL_CONFIG.pio; // usually pio0
+const uint sm_joybus_rx = 3; // last free sm in pio0 unless sm_tmds is set to something unusual
+
+const PIO pio = (DVI_DEFAULT_SERIAL_CONFIG.pio == pio0) ? pio1 : pio0;
 const uint sm_video = 0;
 const uint sm_audio = 1;
-const uint sm_joybus_rx = 2;
 struct dvi_inst dvi0;
 uint16_t framebuf[FRAME_WIDTH * FRAME_HEIGHT];
+
+// __no_inline_not_in_flash_func
+// __time_critical_func
+// __not_in_flash_func
 
 void core1_main(void)
 {
@@ -204,13 +211,15 @@ int main(void)
 
     printf("Start rendering\n");
 
-    for (int i = 0; i <= 12; i++) {
+    for (int i = PIN_VIDEO_D0; i <= PIN_AUDIO_BCLK; i++) {
         gpio_init(i);
         gpio_set_dir(i, GPIO_IN);
         gpio_set_pulls(i, false, false);
     }
 
-    // Init PIO before starting the second core
+    gpio_init(PIN_JOYBUS_P1);
+    gpio_set_dir(PIN_JOYBUS_P1, GPIO_IN);
+    gpio_set_pulls(PIN_JOYBUS_P1, false, false);
 
     // Video
     uint offset = pio_add_program(pio, &n64_program);
@@ -222,8 +231,9 @@ int main(void)
     pio_sm_set_enabled(pio, sm_audio, true);
 
     // Joybus RX
-    n64_joybus_rx_program_init(pio, sm_joybus_rx, offset, PIN_JOYBUS_P1);
-    pio_sm_set_enabled(pio, sm_joybus_rx, true);
+    uint offset_joybus = pio_add_program(pio_joybus, &joybus_program);
+    joybus_rx_program_init(pio_joybus, sm_joybus_rx, offset_joybus, PIN_JOYBUS_P1);
+    pio_sm_set_enabled(pio_joybus, sm_joybus_rx, true);
 
     // set_write_offset(&dvi0.audio_ring, 0);
     // set_read_offset(&dvi0.audio_ring, (AUDIO_BUFFER_SIZE) / 2);
@@ -317,31 +327,28 @@ int main(void)
     uint32_t transfer = 0;
     uint32_t y = 0;
     uint32_t value[8];
+
+    puttextf(0, y++ * 8, 0xffff, 0x0000, "hello");
+    puttextf(0, y++ * 8, 0xffff, 0x0000, "offset_joybus = %d", offset_joybus);
+
     while (true) {
-        for (int i = 0; i < 8; i++) {
-            value[i] = pio_sm_get_blocking(pio, sm_joybus_rx);
+        for (int i = 0; i < 4; i++) {
+            value[i] = pio_sm_get_blocking(pio_joybus, sm_joybus_rx);
         }
 
-        for (int i = 0; i < 8; i++) {
-            transfer++;
-            puttextf(0, y * 8, 0xffff, 0x0000, "transfer %d: %02X %02X %02X %02X %02X %02X %02X %02X",
-              transfer, 
-              value[0],
-              value[1],
-              value[2],
-              value[3],
-              value[4],
-              value[5],
-              value[6],
-              value[7]);
-        }
+        transfer++;
 
-        y++;
+        puttextf(0, y++ * 8, 0xffff, 0x0000, "%02d: %08X %08X %08X %08X",
+            transfer % 100, 
+            value[0],
+            value[1], value[2], value[3]);
 
         if (y > 24) {
             y = 0;
+            sleep_ms(2000);
         }
     }
+
 
 #endif
 

@@ -164,40 +164,8 @@ public n64_audio_wrap:
     ; jmp n64_audio_start
 
 
-; ----------------------------------------------------------
-; Joybus RX data sampling
-; Based on: https://github.com/Polprzewodnikowy/PicoJoybus/blob/main/src/joybus.pio
-; Original author: Polprzewodnikowy / Mateusz Faderewski
-; ----------------------------------------------------------
-
-public n64_joybus_rx_start:
-
-rx_stop:
-rx_good_data:
-    push iffull noblock
-public rx_start:
-    wait 1 pin 0
-    wait 0 pin 0
-    mov isr, null
-    set x, 7 [13]
-rx_bit_loop:
-    in pins, 1
-    jmp !x rx_data [8]
-    nop [8]
-    jmp pin rx_stop
-    jmp x-- rx_bit_loop [12]
-rx_data:
-    jmp pin rx_good_data
-rx_bad_data:
-    jmp rx_start
-
-
-
-
 
 % c-sdk {
-
-#include <hardware/clocks.h>
 
 void n64_video_program_init(PIO pio, uint sm, uint offset)
 {
@@ -249,27 +217,4 @@ void n64_audio_program_init(PIO pio, uint sm, uint offset)
     pio_sm_init(pio, sm, offset + n64_offset_n64_audio_start, &c);
 }
 
-void n64_joybus_rx_program_init(PIO pio, uint sm, uint offset, uint pin)
-{
-    // pio_sm_config c = pio_get_default_sm_config();
-    // sm_config_set_wrap(&c, offset + n64_offset_n64_audio_start, offset + n64_offset_n64_audio_wrap);
-    pio_sm_config c = n64_program_get_default_config(offset);
-
-    // Double the FIFO depth
-    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
-
-    sm_config_set_in_pins(&c, pin);
-    sm_config_set_jmp_pin(&c, pin);
-
-    sm_config_set_in_shift(&c, false, false, 8);
-
-    float div = ((float) (clock_get_hz(clk_sys))) / (32 * 250000);
-    sm_config_set_clkdiv(&c, div);
-
-    gpio_pull_up(pin);
-    pio_gpio_init(pio, pin);
-
-    pio_sm_init(pio, sm, offset + n64_offset_n64_joybus_rx_start, &c);
-    pio_sm_set_enabled(pio, sm, true);
-}
 %}

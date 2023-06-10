@@ -20,6 +20,7 @@ target_link_libraries(n64
 )
 
 # Build pio
+pico_generate_pio_header(n64 ${CMAKE_CURRENT_LIST_DIR}/joybus.pio)
 pico_generate_pio_header(n64 ${CMAKE_CURRENT_LIST_DIR}/n64.pio)
 
 
