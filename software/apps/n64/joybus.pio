@@ -29,7 +29,7 @@
 
 
 rx_stop:
-rx_good_data:
+public joybus_rx_good_data:
     push
 public joybus_rx_start:
     wait 1 pin 0
@@ -48,8 +48,8 @@ rx_bad_data:
     jmp joybus_rx_start
 
 check_command:
-    set x, 1
-    mov y, isr
+    mov x, isr
+    ; set y, 1               ; This is done by C-code during init
     jmp x!=y joybus_rx_start ; if isr != 0x01, goto joybus_rx_start
     
     ; Don't even send the command, we always know we will get the payload
@@ -69,14 +69,10 @@ check_command:
     set x, 31 [13]
 rx_bit_loop2:
     in pins, 1
-    jmp !x rx_data2 [8]
+    jmp !x joybus_rx_good_data [8]
     nop [8]
+public joybus_rx_wrap:
     jmp x-- rx_bit_loop2 [12]
-rx_data2:
-    jmp rx_good_data
-rx_bad_data2:
-    jmp joybus_rx_start
-
 
 
 
@@ -86,9 +82,8 @@ rx_bad_data2:
 
 void joybus_rx_program_init(PIO pio, uint sm, uint offset, uint pin)
 {
-    // pio_sm_config c = pio_get_default_sm_config();
-    // sm_config_set_wrap(&c, offset + joybus_offset_n64_audio_start, offset + joybus_offset_n64_audio_wrap);
-    pio_sm_config c = joybus_program_get_default_config(offset);
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_wrap(&c, offset + joybus_offset_joybus_rx_good_data, offset + joybus_offset_joybus_rx_wrap);
 
     sm_config_set_in_pins(&c, pin);
     sm_config_set_jmp_pin(&c, pin);
@@ -102,6 +97,10 @@ void joybus_rx_program_init(PIO pio, uint sm, uint offset, uint pin)
     pio_gpio_init(pio, pin);
 
     pio_sm_init(pio, sm, offset + joybus_offset_joybus_rx_start, &c);
+
+    // Set y=1
+    pio_sm_exec(pio, sm, pio_encode_set(pio_y, 1));
+
     pio_sm_set_enabled(pio, sm, true);
 }
 %}
