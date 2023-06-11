@@ -591,7 +591,7 @@ end_of_line:
 #endif
 
 
-#if 1
+#if DIAGNOSTICS_JOYBUS
     {
         // Use helper functions to decode the last controller state
         uint32_t value = joybus_rx_get_latest(pio_joybus, sm_joybus);
