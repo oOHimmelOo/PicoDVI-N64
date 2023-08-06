@@ -1,0 +1,53 @@
+name: Build
+on:
+  push:
+    branches:
+      - n64
+      - n64-audio
+      - ci
+
+env:
+  # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
+  BUILD_TYPE: Release
+  # TODO: eventually should set the PICO_SDK_PATH here
+  # PICO_SDK_PATH: ${{ github.workspace }}/pico-sdk
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Clean workspace
+      run: |
+        echo "Cleaning up previous run"
+        rm -rf "${{ github.workspace }}"
+        mkdir -p "${{ github.workspace }}"
+
+    - name: Checkout
+      uses: actions/checkout@v2
+      with:
+        repository: ${{ github.event.pull_request.head.repo.full_name }}
+        ref: ${{ github.head_ref }}
+        path: picodvi
+
+    - name: Build picodvi using the pico-sdk-builder docker image
+      run: |
+        docker run \
+        --mount type=bind,source=$(pwd),target=/ci \
+        --workdir=/ci \
+        ghcr.io/kbeckmann/pico-sdk-builder:latest \
+        bash -c "\
+          git config --global --add safe.directory /ci/picodvi                     && \
+          mkdir picodvi/software/build                                             && \
+          cd picodvi/software/build                                                && \
+          cmake ..                                                                 && \
+          make n64                                                                 && \
+          mkdir /ci/artifacts                                                      && \
+          cp apps/n64/n64.uf2 /ci/artifacts/picodvi-n64.uf2"
+
+    - name: Upload picodvi binaries with a bundled test rom to artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: PicoDVI-N64
+        path: |
+          ${{ github.workspace }}/artifacts/*
