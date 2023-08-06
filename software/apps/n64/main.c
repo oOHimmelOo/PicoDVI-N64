@@ -203,8 +203,8 @@ int main(void)
     // dvi_audio_sample_buffer_set(&dvi0, audio_buffer, AUDIO_BUFFER_SIZE);
     // void dvi_audio_sample_dma_set_chan(struct dvi_inst *inst, int chan_a, audio_sample_t *buf_a, int chan_b, audio_sample_t *buf_b, int size) {
     // dvi_set_audio_freq(&dvi0, 44100, 28000, 6272);
-    // dvi_set_audio_freq(&dvi0, 48000, 25200, 6144);
-    dvi_set_audio_freq(&dvi0, 32000, 25200, 4096);
+    dvi_set_audio_freq(&dvi0, 48000, 25200, 6144);
+    // dvi_set_audio_freq(&dvi0, 32000, 25200, 4096);
 
 
     printf("Core 1 start\n");
